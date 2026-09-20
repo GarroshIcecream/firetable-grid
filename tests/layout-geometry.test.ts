@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { ColumnTypes } from "../examples/column-types";
+import type { ColumnType } from "../src";
 import {
   CELL_PADDING_CLASS,
   cellPaddingClass,
@@ -66,6 +68,22 @@ describe("cellPaddingClass", () => {
   test("an unknown or absent renderer falls back to the standard gutter", () => {
     expect(cellPaddingClass(undefined)).toBe(CELL_PADDING_CLASS);
     expect(cellPaddingClass({ dataType: "number" })).toBe(CELL_PADDING_CLASS);
+  });
+
+  test("a ColumnType passes straight in, renderer-null and all", () => {
+    // Regression: `ColumnType.cellRenderer` is `string | null`, so a narrower
+    // `string | undefined` here forced every caller into a cast.
+    const nullRenderer: ColumnType = {
+      dataType: "index",
+      cellRenderer: null,
+      filterType: null,
+      sortable: false,
+      groupable: false,
+      aggregatable: false,
+    };
+    expect(cellPaddingClass(nullRenderer)).toBe(CELL_PADDING_CLASS);
+    expect(cellPaddingClass(ColumnTypes.INDEX)).toBe(DENSE_CELL_PADDING_CLASS);
+    expect(cellPaddingClass(ColumnTypes.TEXT)).toBe(CELL_PADDING_CLASS);
   });
 
   test("the dense set is overridable", () => {

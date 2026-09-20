@@ -1,0 +1,129 @@
+/* Structural styles for the <DataGrid> component.
+ *
+ * Only what the grid cannot work without: the resize handle's hit area, the
+ * drag affordances, sticky header and frozen-column stacking. Colour, borders,
+ * fonts and spacing are deliberately left to you — override with your own rules
+ * or skip this file entirely and style `.ftg-*` yourself.
+ *
+ * Import once, after your reset:  import "firetable-grid/styles/grid.css";
+ */
+
+.ftg-frame {
+  overflow: auto;
+  position: relative;
+}
+
+.ftg-grid {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+/* The header has to out-stack the frozen body cells (z-10 from the engine),
+ * and a frozen HEADER cell has to out-stack the rest of the header. */
+.ftg-grid thead th {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  text-align: left;
+  /* Room for the resize handle so a long label never sits under it. */
+  padding-right: 10px;
+}
+.ftg-grid thead th.sticky {
+  z-index: 30;
+}
+
+.ftg-th {
+  position: relative;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.ftg-sortable {
+  cursor: pointer;
+}
+
+/* Resize handle -----------------------------------------------------------
+ * Absolutely positioned so it overlaps the cell's trailing edge instead of
+ * reserving a gutter, which would push every label off the column's axis.
+ * 9px wide: a 1px line is unhittable, and anything wider starts swallowing
+ * clicks meant for the header's sort. */
+.ftg-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  z-index: 1;
+  width: 9px;
+  height: 100%;
+  cursor: col-resize;
+  /* `touch-action: none` or a touch drag scrolls the frame instead. */
+  touch-action: none;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.ftg-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 4px;
+  width: 1px;
+  height: 100%;
+  background: currentColor;
+}
+.ftg-th:hover .ftg-resize-handle,
+.ftg-resize-handle:focus-visible {
+  opacity: 0.45;
+}
+/* Must out-rank the hover rule above: during a drag the pointer is usually
+ * still over the header, and the handle should read as held, not hovered. */
+.ftg-th.ftg-resizing .ftg-resize-handle {
+  opacity: 0.9;
+}
+.ftg-resize-handle:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: -2px;
+}
+
+/* Reorder ------------------------------------------------------------------ */
+.ftg-th[draggable="true"] {
+  cursor: grab;
+}
+.ftg-dragging {
+  opacity: 0.4;
+}
+/* A leading edge marks the insertion point; a full-cell tint would read as a
+ * selection rather than as a drop target. */
+.ftg-drop-target::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  width: 2px;
+  height: 100%;
+  background: currentColor;
+}
+
+/* Rows --------------------------------------------------------------------- */
+.ftg-group-row td {
+  position: sticky;
+  left: 0;
+}
+.ftg-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 12px;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.ftg-caret {
+  width: 10px;
+}
+.ftg-empty {
+  padding: 24px 12px;
+  text-align: center;
+}

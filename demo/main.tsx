@@ -1,0 +1,468 @@
+// The demo renders the package's own <DataGrid>. Column resizing is on because
+// the component defaults it on; reordering is behind the toolbar's toggle,
+// which is the `reorderable` prop — the opt-in.
+//
+// The panel on the right prints the engine's state next to the table it made.
+
+import { StrictMode, useMemo, useState } from "react";
+import { createRoot } from "react-dom/client";
+import {
+  AGG_SYMBOLS,
+  applyAST,
+  buildCsvString,
+  buildExportFilename,
+  type CategoryResolver,
+  countFilters,
+  type FilterAST,
+  type FilterCondition,
+  type FilterOp,
+  formatFooterAggregate,
+  resolveThresholdColor,
+  type SchemaColumn,
+  thresholdClasses,
+} from "../src";
+import {
+  buildColumnLayout,
+  buildFlatItems,
+  computeRowsAgg,
+} from "../src/layout";
+import { DataGrid, type SortEntry } from "../src/react";
+import { buildColumns, buildRows, type Item } from "./data";
+
+const rows = buildRows();
+const columns = buildColumns();
+const byId = new Map(columns.map((c) => [c.id, c]));
+const nf = (o?: Intl.NumberFormatOptions) => new Intl.NumberFormat("en-GB", o);
+const formatter = {
+  number: (v: number, o?: Intl.NumberFormatOptions) => nf(o).format(v),
+};
+
+// Two buckets, so the demo can show a reorder drag being refused across a
+// boundary as well as accepted within one.
+const CATEGORY: Record<string, string> = {
+  rowIndex: "identity",
+  name: "identity",
+  sku: "identity",
+  category: "facts",
+  supplier: "facts",
+  addedOn: "facts",
+  price: "metrics",
+  daysInStock: "metrics",
+  marginTrend: "metrics",
+  quality: "metrics",
+};
+const categoryOf: CategoryResolver = (id) => CATEGORY[id];
+
+function tone(column: SchemaColumn<Item>, value: number): string {
+  if (!column.thresholds) return "";
+  return thresholdClasses(resolveThresholdColor(value, column.thresholds));
+}
+
+function Cell({ column, row }: { column: SchemaColumn<Item>; row: Item }) {
+  const raw = (row as unknown as Record<string, unknown>)[column.id];
+  switch (column.type.cellRenderer) {
+    case "genericBadge":
+      return <span className="badge">{String(raw ?? "")}</span>;
+    case "currency": {
+      const v = Number(raw);
+      return (
+        <span className={`pill ${tone(column, v)}`}>
+          {column.type.formatPrefix}
+          {nf({ maximumFractionDigits: 0 }).format(v)}
+        </span>
+      );
+    }
+    case "daysBadge": {
+      const v = Number(raw);
+      return (
+        <span className={`pill ${tone(column, v)}`}>
+          {v}
+          {column.type.formatSuffix}
+        </span>
+      );
+    }
+    case "trend": {
+      const v = Number(raw);
+      return (
+        <span className="trend">
+          <span className={`dot ${tone(column, v)}`} />
+          <span>
+            {v > 0 ? "▲" : v < 0 ? "▼" : "–"} {Math.abs(v).toFixed(1)} pp
+          </span>
+        </span>
+      );
+    }
+    case "attentionProgress": {
+      const v = Number(raw);
+      return (
+        <span className="progress">
+          <span className="progress-track">
+            <span
+              className={`progress-fill ${tone(column, v)}`}
+              style={{ width: `${Math.round(v * 100)}%` }}
+            />
+          </span>
+          <span className="progress-label">{Math.round(v * 100)}%</span>
+        </span>
+      );
+    }
+    default:
+      return <>{String(raw ?? "")}</>;
+  }
+}
+
+const EMPTY_AST: FilterAST = { search: "", and: [], orGroups: [] };
+
+function App() {
+  const [ast, setAst] = useState<FilterAST>(EMPTY_AST);
+  const [sorting, setSorting] = useState<SortEntry[]>([]);
+  const [groupBy, setGroupBy] = useState("");
+  const [wrapCells, setWrapCells] = useState(false);
+  const [reorderable, setReorderable] = useState(true);
+  const [byCategory, setByCategory] = useState(false);
+  const [order, setOrder] = useState<string[]>(() => columns.map((c) => c.id));
+  const [sizes, setSizes] = useState<Record<string, number>>({});
+
+  // Draft filter-builder state
+  const [field, setField] = useState(
+    columns.find((c) => c.filterable)?.id ?? "",
+  );
+  const [op, setOp] = useState<FilterOp>("is");
+  const [val, setVal] = useState("");
+
+  const filtered = useMemo(() => applyAST(rows, ast, columns), [ast]);
+  const ordered = useMemo(
+    () =>
+      order
+        .map((id) => byId.get(id))
+        .filter((c): c is SchemaColumn<Item> => !!c),
+    [order],
+  );
+  const layout = useMemo(
+    () =>
+      buildColumnLayout(
+        ordered.map((c) => ({
+          id: c.id,
+          item: c,
+          size: sizes[c.id] ?? c.width,
+        })),
+        ordered.filter((c) => c.frozen).map((c) => c.id),
+      ),
+    [ordered, sizes],
+  );
+  const flatItems = useMemo(
+    () =>
+      buildFlatItems(
+        filtered.map((original) => ({ original })),
+        groupBy,
+        "asc",
+      ),
+    [filtered, groupBy],
+  );
+
+  const fieldColumn = byId.get(field);
+  const addFilter = () => {
+    if (!field || !op) return;
+    const cond: FilterCondition = { field, op, val };
+    setAst((a) => ({ ...a, and: [...a.and, cond] }));
+    setVal("");
+  };
+
+  const exportCsv = () => {
+    const csv = buildCsvString(
+      filtered,
+      columns.filter((c) => c.exportable),
+    );
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = buildExportFilename({
+      prefix: "inventory",
+      scope: groupBy || null,
+      ext: "csv",
+    });
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  const reset = () => {
+    setAst(EMPTY_AST);
+    setSorting([]);
+    setGroupBy("");
+    setOrder(columns.map((c) => c.id));
+    setSizes({});
+  };
+
+  return (
+    <main className="layout">
+      <div className="left">
+        <div className="toolbar">
+          <label className="field">
+            <span className="field-label">Search</span>
+            <input
+              type="search"
+              placeholder="Search Item / SKU…"
+              value={ast.search}
+              onChange={(e) =>
+                setAst((a) => ({ ...a, search: e.target.value }))
+              }
+            />
+          </label>
+
+          <label className="field">
+            <span className="field-label">Group by</span>
+            <select
+              value={groupBy}
+              onChange={(e) => setGroupBy(e.target.value)}
+            >
+              <option value="">No grouping</option>
+              {columns
+                .filter((c) => c.groupable)
+                .map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.label}
+                  </option>
+                ))}
+            </select>
+          </label>
+
+          <div className="field">
+            <span className="field-label">Filter</span>
+            <div className="builder">
+              <select
+                value={field}
+                onChange={(e) => {
+                  setField(e.target.value);
+                  setOp(
+                    (byId.get(e.target.value)?.operators?.[0] ??
+                      "is") as FilterOp,
+                  );
+                }}
+              >
+                {columns
+                  .filter((c) => c.filterable)
+                  .map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.label}
+                    </option>
+                  ))}
+              </select>
+              <select
+                value={op}
+                onChange={(e) => setOp(e.target.value as FilterOp)}
+              >
+                {(fieldColumn?.operators ?? []).map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+              </select>
+              <input
+                placeholder="value"
+                value={val}
+                onChange={(e) => setVal(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && addFilter()}
+                list={fieldColumn?.filterOptions ? `o-${field}` : undefined}
+              />
+              {fieldColumn?.filterOptions ? (
+                <datalist id={`o-${field}`}>
+                  {fieldColumn.filterOptions.map((o) => (
+                    <option key={o.value} value={o.value} />
+                  ))}
+                </datalist>
+              ) : null}
+              <button type="button" className="primary" onClick={addFilter}>
+                Add
+              </button>
+            </div>
+          </div>
+
+          <label className="field">
+            <span className="field-label">Drag to reorder</span>
+            <input
+              type="checkbox"
+              checked={reorderable}
+              onChange={(e) => setReorderable(e.target.checked)}
+            />
+          </label>
+
+          <label className="field">
+            <span className="field-label">Keep in category</span>
+            <input
+              type="checkbox"
+              checked={byCategory}
+              disabled={!reorderable}
+              onChange={(e) => setByCategory(e.target.checked)}
+            />
+          </label>
+
+          <label className="field">
+            <span className="field-label">Wrap cells</span>
+            <input
+              type="checkbox"
+              checked={wrapCells}
+              onChange={(e) => setWrapCells(e.target.checked)}
+            />
+          </label>
+
+          <div className="field">
+            <span className="field-label">&nbsp;</span>
+            <div className="builder">
+              <button type="button" onClick={exportCsv}>
+                Export CSV
+              </button>
+              <button type="button" onClick={reset}>
+                Reset
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <p className="hint">
+          Drag a <strong>header</strong> to reorder · drag a header's{" "}
+          <strong>right edge</strong> to resize (or focus it and press ←/→) ·
+          click a header to sort. The first two columns are frozen, so they are
+          excluded from reordering.
+          {byCategory
+            ? " Category mode is on: a column can only move within identity / facts / metrics."
+            : ""}
+        </p>
+
+        <div className="chips">
+          {ast.and.length === 0 && !ast.search ? (
+            <span className="chips-empty">No filters — showing every row.</span>
+          ) : null}
+          {ast.search ? (
+            <span className="chip">search: “{ast.search}”</span>
+          ) : null}
+          {ast.and.map((c, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: two identical conditions are legal, so position is part of a chip's identity.
+            <div className="chip" key={`${c.field}-${c.op}-${c.val}-${i}`}>
+              <span>
+                {byId.get(c.field)?.label ?? c.field} {c.op} {c.val}
+              </span>
+              <button
+                type="button"
+                className="chip-x"
+                onClick={() =>
+                  setAst((a) => ({
+                    ...a,
+                    and: a.and.filter((_, j) => j !== i),
+                  }))
+                }
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <DataGrid<Item>
+          className="demo-grid"
+          rows={rows}
+          columns={columns}
+          filter={ast}
+          sorting={sorting}
+          onSortingChange={setSorting}
+          groupBy={groupBy}
+          columnOrder={order}
+          onColumnOrderChange={setOrder}
+          columnSizes={sizes}
+          onColumnSizesChange={setSizes}
+          reorderable={reorderable}
+          categoryOf={byCategory ? categoryOf : undefined}
+          wrapCells={wrapCells}
+          renderCell={(column, row) => <Cell column={column} row={row} />}
+        />
+
+        <div className="footer-aggs">
+          {columns
+            .filter((c) => c.type.aggregatable)
+            .map((c) => (
+              <span key={c.id} className="footer-agg">
+                <span className="agg-label">{c.label}</span>
+                <span className="agg-symbol">{AGG_SYMBOLS.avg}</span>
+                {formatFooterAggregate(
+                  computeRowsAgg(
+                    filtered.map((original) => ({ original })),
+                    c.id,
+                    "avg",
+                  ),
+                  "avg",
+                  c,
+                  formatter,
+                )}
+              </span>
+            ))}
+        </div>
+      </div>
+
+      <aside className="panel">
+        <h2>Engine state</h2>
+        <div className="stats">
+          <div className="stat">
+            <div className="stat-value">{rows.length}</div>
+            <div className="stat-key">rows in</div>
+          </div>
+          <div className="stat">
+            <div className="stat-value">{filtered.length}</div>
+            <div className="stat-key">after filter</div>
+          </div>
+          <div className="stat">
+            <div className="stat-value">{countFilters(ast)}</div>
+            <div className="stat-key">filters</div>
+          </div>
+          <div className="stat">
+            <div className="stat-value">{flatItems.length}</div>
+            <div className="stat-key">flat items</div>
+          </div>
+        </div>
+
+        <h3>Column order</h3>
+        <p className="note">
+          Rewritten by moveColumnWithinCategory() on every drop.
+        </p>
+        <pre>{order.join("\n")}</pre>
+
+        <h3>Column sizes</h3>
+        <p className="note">
+          Committed on pointer-up; the drag itself is pure CSS.
+        </p>
+        <pre>
+          {Object.keys(sizes).length === 0
+            ? "— nothing resized yet —"
+            : JSON.stringify(sizes, null, 2)}
+        </pre>
+
+        <h3>FilterAST</h3>
+        <p className="note">
+          Serializable by design — this is what a saved view stores.
+        </p>
+        <pre>{JSON.stringify(ast, null, 2)}</pre>
+
+        <h3>Sorting</h3>
+        <pre>{JSON.stringify(sorting, null, 2)}</pre>
+
+        <h3>Column layout</h3>
+        <p className="note">
+          {layout.filter((e) => e.isPinned).length} pinned,{" "}
+          {layout.filter((e) => !e.isPinned).length} scrolling.
+        </p>
+        <pre>
+          {layout
+            .map(
+              (e) =>
+                `${e.isPinned ? (e.isLastPinned ? "├ last" : "│ pin ") : "  ···"} ${e.id.padEnd(12)} w=${String(e.size).padStart(4)}${e.stickyLeft !== undefined ? ` left=${e.stickyLeft}` : ""}`,
+            )
+            .join("\n")}
+        </pre>
+      </aside>
+    </main>
+  );
+}
+
+createRoot(document.getElementById("app") as HTMLElement).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
+);

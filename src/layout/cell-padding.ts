@@ -22,8 +22,13 @@ export const DEFAULT_DENSE_CELL_RENDERERS: ReadonlySet<string> = new Set([
   "thumbnail",
 ]);
 
+/**
+ * The slice of a column type this needs. `cellRenderer` accepts `null` so a
+ * `ColumnType` — where a column with no renderer declares `cellRenderer: null`
+ * — can be passed straight in without a cast.
+ */
 export type CellPaddingType = {
-  cellRenderer?: string;
+  cellRenderer?: string | null;
   dataType?: string;
 };
 

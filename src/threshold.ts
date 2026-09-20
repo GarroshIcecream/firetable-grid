@@ -85,6 +85,23 @@ export function thresholdBgClass(color: ThresholdColor): string {
   return gridTheme().palette[color.hue][color.level].bg;
 }
 
+/**
+ * The foreground class paired with `thresholdBgClass` for the same colour.
+ *
+ * Always use the pair. A light level resolves to a pale fill that needs dark
+ * text, a dark level to a saturated fill that needs white — setting only the
+ * background leaves the text at whatever it inherited, which goes unreadable
+ * on one half of the scale.
+ */
+export function thresholdTextClass(color: ThresholdColor): string {
+  return gridTheme().palette[color.hue][color.level].text;
+}
+
+/** Both classes for a threshold colour, ready to drop into a class list. */
+export function thresholdClasses(color: ThresholdColor): string {
+  return `${thresholdBgClass(color)} ${thresholdTextClass(color)}`;
+}
+
 // Pure equality check used by editors to detect unsaved draft changes.
 // Defined here (rather than inside the editor component) so it can be tested
 // independently of React.

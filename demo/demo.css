@@ -1,0 +1,370 @@
+/* Demo chrome only — none of this comes from the package.
+   Rules are ordered least- to most-specific so nothing is shadowed. */
+:root {
+  --bg: #ffffff;
+  --panel: #f7f8fa;
+  --border: #e3e6ec;
+  --text: #1b1f27;
+  --muted: #6b7484;
+  --accent: #5a55f5;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14171d;
+    --panel: #1b1f27;
+    --border: #2b313c;
+    --text: #e8eaef;
+    --muted: #949cab;
+    --accent: #8c88ff;
+  }
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font:
+    14px / 1.5 ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+}
+input,
+select,
+button {
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 6px 9px;
+}
+input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  accent-color: var(--accent);
+}
+button {
+  cursor: pointer;
+}
+button:hover {
+  border-color: var(--accent);
+}
+
+/* header */
+.page-head {
+  padding: 24px 20px 12px;
+  max-width: 82ch;
+}
+.page-head h1 {
+  margin: 0 0 6px;
+  font-size: 20px;
+  letter-spacing: -0.01em;
+}
+.page-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.page-head code {
+  font:
+    12px ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+/* layout */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 20px;
+  padding: 12px 20px 40px;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.left {
+  min-width: 0;
+}
+
+/* toolbar */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  align-items: flex-end;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.field-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.builder {
+  display: flex;
+  gap: 6px;
+}
+.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.hint {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.hint strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* chips */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0;
+  min-height: 26px;
+  align-items: center;
+}
+.chips-empty {
+  color: var(--muted);
+  font-size: 12px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+}
+.chip-x {
+  border: 0;
+  background: none;
+  padding: 0 2px;
+  color: var(--muted);
+  line-height: 1;
+}
+.chip-x:hover {
+  color: var(--text);
+}
+
+/* cells */
+.badge,
+.pill {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+.badge {
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+.trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+}
+.progress-track {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+  display: block;
+}
+.progress-fill {
+  display: block;
+  height: 100%;
+}
+.progress-label {
+  color: var(--muted);
+  font-size: 11px;
+  min-width: 30px;
+}
+
+/* footer aggregates */
+.footer-aggs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.footer-agg {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.agg-label {
+  opacity: 0.7;
+}
+.agg-symbol {
+  opacity: 0.7;
+}
+
+/* state panel */
+.panel {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  padding: 14px;
+  position: sticky;
+  top: 12px;
+  max-height: calc(100vh - 24px);
+  overflow: auto;
+}
+.panel h2 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+}
+.panel h3 {
+  margin: 16px 0 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.panel .note {
+  margin: 0 0 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.panel pre {
+  margin: 0;
+  padding: 9px;
+  border-radius: 7px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font:
+    11px / 1.45 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  overflow-x: auto;
+  white-space: pre;
+}
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+.stat {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 7px 6px;
+  text-align: center;
+}
+.stat-value {
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.stat-key {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+/* skin for <DataGrid>'s structural classes — the component ships layout and
+   behaviour, colour and borders are the host app's job (i.e. these rules) */
+.demo-grid {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  max-height: 58vh;
+  background: var(--bg);
+}
+.demo-grid th,
+.demo-grid td {
+  background: var(--bg);
+}
+.demo-grid thead th {
+  height: 34px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+.demo-grid tbody td {
+  height: 38px;
+  border-bottom: 1px solid var(--border);
+}
+.demo-grid .ftg-grid {
+  font-size: 13px;
+}
+.demo-grid .ftg-empty {
+  color: var(--muted);
+}
+.demo-grid .ftg-sort-mark {
+  color: var(--accent);
+}
+.demo-grid .ftg-resize-handle {
+  color: var(--accent);
+}
+.demo-grid .ftg-drop-target::before {
+  color: var(--accent);
+}
+.demo-grid .ftg-sortable:hover {
+  color: var(--text);
+}
+.demo-grid .ftg-group-count {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 7px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.demo-grid .ftg-group-row td {
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+}
+.demo-grid .ftg-row:hover td {
+  background: var(--panel);
+}

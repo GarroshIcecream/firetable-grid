@@ -10,7 +10,9 @@ Extracted from FireTable, where it backs every table in the product.
 bun add firetable-grid
 ```
 
-Peer dependencies: `@tanstack/react-table` (>=9). `exceljs` only if you export XLSX, `server-only` only if you use the server entry point, `zod` only if you validate stored threshold config.
+Peer dependencies: `@tanstack/react-table` (>=9). Everything else is optional: `exceljs` only if you export XLSX, `server-only` only if you use the server entry point, `zod` only if you import `firetable-grid/schema` to validate stored config.
+
+The package root is free of all three — it bundles to a few KB — because each lives behind its own entry point or a dynamic import. `tests/entry-points.test.ts` walks the import graph and fails if one leaks back into the root.
 
 ## The idea
 
@@ -58,6 +60,13 @@ const visible = applyAST(rows, ast, columns);
 
 Use `projectFilterAST(ast, keep)` to narrow an AST — it preserves the per-boundary boolean operators that a naive rebuild silently drops.
 
+`EMPTY_FILTER_AST` is deeply frozen, including its `and` and `orGroups` arrays. Spreading it is safe as long as you supply your own array for anything you change, as above. If you build an AST by mutation, start from `emptyFilterAST()` instead — spreading the constant and then pushing would otherwise append to arrays that every other spread is sharing:
+
+```ts
+const ast = emptyFilterAST();          // fresh arrays, safe to mutate
+ast.and.push({ field: "price", op: "≤", val: "25000" });
+```
+
 ## Export
 
 CSV and XLSX both resolve cells through the same `ExportCellContext`, so an export matches what the grid shows — including threshold colours.
@@ -101,6 +110,62 @@ configureGridTheme({
 The class names and the export hexes are two halves of one contract: `styles/palette.css` drives the screen, `baseHex` drives the spreadsheet, and nothing links them but that contract. `tests/palette-hex.test.ts` is the guard — it replays the CSS `color-mix()` weights in TypeScript and fails if the two drift. If you change one, change the other.
 
 Call `configureGridTheme()` before anything renders: helpers read the active theme at call time, so a later change will not repaint what is already on screen.
+
+## The grid component (`firetable-grid/react`)
+
+If you want a table rather than parts, `<DataGrid>` assembles the engine and the
+layout layer for you. **Column resizing is on by default**; **drag-to-reorder is
+opt-in** via `reorderable`.
+
+```tsx
+import { DataGrid } from "firetable-grid/react";
+import "firetable-grid/styles/grid.css";
+
+<DataGrid
+  rows={rows}
+  columns={columns}
+  renderCell={(column, row) => <Cell column={column} row={row} />}
+/>;
+```
+
+That is the whole minimal call — order, sizes, sorting and collapsed groups are
+uncontrolled until you pass them, so resizing works with no wiring. Pass any of
+them with its `on…Change` partner to take control and persist it:
+
+```tsx
+<DataGrid
+  rows={rows} columns={columns} renderCell={renderCell}
+  filter={ast}                                   // a FilterAST
+  sorting={sorting} onSortingChange={setSorting}
+  groupBy="category"
+  columnOrder={order} onColumnOrderChange={setOrder}
+  columnSizes={sizes} onColumnSizesChange={setSizes}
+  reorderable                                    // opt in to drag-to-reorder
+  categoryOf={(id) => CATEGORY[id]}              // optional: confine a drag
+/>;
+```
+
+`renderCell` keeps the cell DOM yours — the component owns layout, sticky
+offsets, ordering, sizing and grouping, and tells you which renderer a column
+wants via `column.type.cellRenderer`.
+
+**Reordering** runs on native HTML5 drag events; there is no drag-and-drop
+library. The hook only produces the `(active, over)` pair and
+`moveColumnWithinCategory()` decides the result, which is what stops a drag
+tearing a column out of its category. Frozen columns are excluded, because a
+pinned column drifting out of the frozen block would leave the sticky offsets
+describing an order that no longer exists. Pass `categoryOf` to confine drags to
+a bucket; omit it and every column shares one, i.e. free reordering.
+
+**Resizing** writes straight to the CSS custom properties on the frame, so a
+drag never re-renders a cell — at 150 columns by 35 visible rows, committing to
+state per pointer frame would re-render thousands of memoized cells a second.
+State is touched once, on pointer-up. The handle is focusable: ←/→ resize by
+8px, Shift+←/→ by 32px. Pass `resizable={false}` to turn it off.
+
+`styles/grid.css` carries only what the grid cannot work without — the handle's
+hit area, drag affordances, sticky stacking. Colour, borders and fonts are
+yours; the classes are all `.ftg-*`.
 
 ## Layout (`firetable-grid/layout`)
 
@@ -164,9 +229,10 @@ It pulls in no UI kit.
 | | |
 |---|---|
 | `sorting-state` | multi-column sort state, capped and normalized |
-| `date-grouping` | group dates by day/week/month/quarter/year, with injectable relative labels |
-| `threshold` / `threshold-schema` | value→colour bands, plus zod schemas for validating stored config |
-| `stagedDayThresholdListSchema(n)` | N ordered whole-day bounds plus a catch-all, for staged status indicators |
+| `date-grouping` | group dates by day/week/month/quarter/year, with injectable relative labels. A value's calendar day is always the **local** one — a string contributes its literal `YYYY-MM-DD` prefix, a `Date` its local day — so filtering, grouping and both export formats agree on which day a row falls on |
+| `threshold` | value→colour bands, zod-free so cell renderers can import the resolvers |
+| `firetable-grid/schema` | zod schemas for validating stored threshold and enum-colour config — a separate entry point so zod stays out of your client bundle |
+| `stagedDayThresholdListSchema(n)` | N ordered whole-day bounds plus a catch-all, for staged status indicators (on `firetable-grid/schema`) |
 | `enum-color` | per-value colours for enum columns |
 | `column-category-layout` | grouping columns into reorderable category blocks |
 | `derived-options` | filter options computed from the data when the set is not fixed |
@@ -174,11 +240,29 @@ It pulls in no UI kit.
 
 Both snippets above live in `examples/` as compiling code — `bun run typecheck` covers them, so a change that breaks the documented API breaks the build.
 
+## Demo
+
+`demo/index.html` is a prebuilt, self-contained page — open it straight from a
+clone, no server and no build step. It renders the package's own `<DataGrid>` — drag a
+header to reorder, drag a header's right edge to resize — with the engine's own
+state printed beside it: the live FilterAST, the resolved column layout with sticky
+offsets, the flat item list, and the CSV the current view would export. Filter,
+sort, group and collapse, and watch both sides change together.
+
+```bash
+bun run demo    # rebuild demo/index.html after changing the package
+```
+
+The build inlines the JS and CSS into one file, and it generates the colour CSS
+by asking the package itself what each hue resolves to via `paletteShadeHex` —
+so the demo cannot drift from the palette it documents. `demo/template.html`
+holds the placeholders; it is not a page you can open.
+
 ## Development
 
 ```bash
 bun install
-bun test          # 279 tests
+bun test          # 328 tests
 bun run typecheck
 bun run lint
 ```

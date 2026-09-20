@@ -16,23 +16,32 @@
     "examples",
     "README.md"
   ],
+  "sideEffects": [
+    "**/*.css"
+  ],
   "exports": {
     ".": "./src/index.ts",
+    "./schema": "./src/schema.ts",
     "./server": "./src/server.ts",
     "./styles/palette.css": "./styles/palette.css",
-    "./layout": "./src/layout/index.ts"
+    "./layout": "./src/layout/index.ts",
+    "./react": "./src/react/index.ts",
+    "./styles/grid.css": "./styles/grid.css"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "lint": "biome check",
-    "format": "biome format --write"
+    "format": "biome format --write",
+    "demo": "bun demo/build.ts"
   },
   "peerDependencies": {
     "@tanstack/react-table": ">=9",
     "@tanstack/react-virtual": "^3",
+    "@tanstack/table-core": ">=9",
     "exceljs": "^4.4.0",
     "react": ">=18",
+    "react-dom": ">=18",
     "server-only": "^0.0.1",
     "zod": "^4"
   },
@@ -48,6 +57,12 @@
     },
     "@tanstack/react-virtual": {
       "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    },
+    "zod": {
+      "optional": true
     }
   },
   "devDependencies": {
@@ -56,7 +71,10 @@
     "@tanstack/react-virtual": "^3.14.13",
     "@types/bun": "latest",
     "@types/react": "^19",
+    "@types/react-dom": "^19",
     "exceljs": "^4.4.0",
+    "react": "^19",
+    "react-dom": "^19",
     "server-only": "^0.0.1",
     "typescript": "^6.0.3",
     "zod": "^4.6.2"
