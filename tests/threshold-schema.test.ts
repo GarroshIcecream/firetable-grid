@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import {
-  areThresholdsEqual,
-  resolveThresholdColor,
-  thresholdColorSchema,
-  thresholdListSchema,
-} from "../src";
+import { areThresholdsEqual, resolveThresholdColor } from "../src";
+import { thresholdColorSchema, thresholdListSchema } from "../src/schema";
 
 describe("thresholdListSchema", () => {
   const valid = [

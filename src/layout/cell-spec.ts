@@ -25,7 +25,7 @@ import {
   SELECTION_COLUMN_ID,
 } from "./model";
 
-type CellMeta<TData extends RowData> = {
+export type CellMeta<TData extends RowData> = {
   breakdown?: CellBreakdownSpec<TData>;
   cellTint?: (row: TData) => string | undefined;
   type?: CellPaddingType & { cellAlignment?: CellAlignment };
@@ -90,23 +90,50 @@ export type CellSpec<TData extends RowData> = {
   skeletonShape: SkeletonShape;
 };
 
-export interface BuildCellSpecsOptions {
+/** The default `metaOf`: a TanStack header keeps its cell metadata on the
+ *  column definition. */
+function headerMeta<TData extends RowData>(
+  item: AppHeader<TData, unknown>,
+): CellMeta<TData> | undefined {
+  return item.column.columnDef.meta as CellMeta<TData> | undefined;
+}
+
+export interface BuildCellSpecsOptions<
+  TData extends RowData = RowData,
+  TItem = AppHeader<TData, unknown>,
+> {
   wrapCells: boolean;
-  enableSelection: boolean;
+  /** Reserve the narrow leading gutter for a selection checkbox column. */
+  enableSelection?: boolean;
   /** Renderers that take the tight gutter. Defaults to the index/thumbnail pair. */
   denseCellRenderers?: ReadonlySet<string>;
   /** Skeleton shape per renderer. Merged over `DEFAULT_SKELETON_SHAPES`. */
   skeletonShapes?: Readonly<Record<string, SkeletonShape>>;
+  /**
+   * Where a column's cell metadata sits on your layout item.
+   *
+   * Defaults to the TanStack header shape, `item.column.columnDef.meta`. A
+   * `SchemaColumn` already carries `type`, `breakdown` and `cellTint` at its
+   * top level, so a schema-driven layout passes `(column) => column` - which is
+   * what `<DataGrid>` does. Without this the helper only fit a TanStack-backed
+   * table, and the per-column hoist it exists for was unavailable to everyone
+   * else.
+   */
+  metaOf?: (item: TItem) => CellMeta<TData> | undefined;
 }
 
-export function buildCellSpecs<TData extends RowData>(
-  columnLayout: readonly ColumnLayoutEntry<AppHeader<TData, unknown>>[],
+export function buildCellSpecs<
+  TData extends RowData,
+  TItem = AppHeader<TData, unknown>,
+>(
+  columnLayout: readonly ColumnLayoutEntry<TItem>[],
   {
     wrapCells,
-    enableSelection,
+    enableSelection = false,
     denseCellRenderers,
     skeletonShapes,
-  }: BuildCellSpecsOptions,
+    metaOf = headerMeta as unknown as (item: TItem) => CellMeta<TData>,
+  }: BuildCellSpecsOptions<TData, TItem>,
 ): CellSpec<TData>[] {
   const shapes = skeletonShapes
     ? { ...DEFAULT_SKELETON_SHAPES, ...skeletonShapes }
@@ -117,9 +144,7 @@ export function buildCellSpecs<TData extends RowData>(
     : "whitespace-nowrap";
 
   return columnLayout.map((layout) => {
-    const meta = layout.item.column.columnDef.meta as
-      | CellMeta<TData>
-      | undefined;
+    const meta = metaOf(layout.item);
     const isSelectionCell =
       enableSelection && layout.id === SELECTION_COLUMN_ID;
     const cellType = meta?.type;

@@ -201,6 +201,30 @@ describe("stock-table model", () => {
     expect(computeRowsAgg(rows, "percentage", "max")).toBe(0.375);
     expect(computeRowsAgg(rows, "percentage", "count")).toBe(2);
   });
+
+  test("aggregates a row count that would overflow an argument list", () => {
+    // `Math.min(...values)` passes one argument per row, and V8 throws
+    // `RangeError: Maximum call stack size exceeded` past ~125k of them - so
+    // min/max used to crash on exactly the datasets a footer aggregate is for.
+    const rows = Array.from({ length: 300_000 }, (_, i) => ({
+      original: { price: i },
+    }));
+
+    expect(computeRowsAgg(rows, "price", "min")).toBe(0);
+    expect(computeRowsAgg(rows, "price", "max")).toBe(299_999);
+    expect(computeRowsAgg(rows, "price", "count")).toBe(300_000);
+  });
+
+  test("returns null when no row carries a numeric value", () => {
+    const rows: Array<{ original: Record<string, unknown> }> = [
+      { original: { price: null } },
+      { original: {} },
+    ];
+
+    for (const agg of ["avg", "sum", "min", "max", "count"] as const) {
+      expect(computeRowsAgg(rows, "price", agg)).toBeNull();
+    }
+  });
 });
 
 describe("pendingRowRunway", () => {

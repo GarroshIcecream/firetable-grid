@@ -11,14 +11,17 @@ import {
   applyAST,
   buildCsvString,
   buildExportFilename,
+  buildVisibility,
   type CategoryResolver,
   countFilters,
   type FilterAST,
   type FilterCondition,
   type FilterOp,
   formatFooterAggregate,
+  isColumnVisible,
   resolveThresholdColor,
   type SchemaColumn,
+  selectExportColumns,
   thresholdClasses,
 } from "../src";
 import {
@@ -46,10 +49,18 @@ const CATEGORY: Record<string, string> = {
   category: "facts",
   supplier: "facts",
   addedOn: "facts",
+  warehouse: "facts",
+  status: "facts",
+  lastCountedOn: "facts",
   price: "metrics",
   daysInStock: "metrics",
   marginTrend: "metrics",
   quality: "metrics",
+  unitsOnHand: "metrics",
+  reorderPoint: "metrics",
+  leadTimeDays: "metrics",
+  returnsRate: "metrics",
+  weightKg: "metrics",
 };
 const categoryOf: CategoryResolver = (id) => CATEGORY[id];
 
@@ -106,6 +117,10 @@ function Cell({ column, row }: { column: SchemaColumn<Item>; row: Item }) {
         </span>
       );
     }
+    case "rawNumber":
+      return <>{nf({ maximumFractionDigits: 0 }).format(Number(raw))}</>;
+    case "decimal":
+      return <>{nf({ minimumFractionDigits: 1 }).format(Number(raw))}</>;
     default:
       return <>{String(raw ?? "")}</>;
   }
@@ -122,6 +137,11 @@ function App() {
   const [byCategory, setByCategory] = useState(false);
   const [order, setOrder] = useState<string[]>(() => columns.map((c) => c.id));
   const [sizes, setSizes] = useState<Record<string, number>>({});
+  // Seeded from the schema's own `visible` flags. Absent from the record means
+  // visible, which is the same contract the CSV export reads.
+  const [visibility, setVisibility] = useState<Record<string, boolean>>(() =>
+    buildVisibility(columns),
+  );
 
   // Draft filter-builder state
   const [field, setField] = useState(
@@ -169,9 +189,11 @@ function App() {
   };
 
   const exportCsv = () => {
+    // `selectExportColumns` reads the same visibility record the grid does, so
+    // hiding a column drops it from the file too.
     const csv = buildCsvString(
       filtered,
-      columns.filter((c) => c.exportable),
+      selectExportColumns(columns, order, visibility, filtered),
     );
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const a = document.createElement("a");
@@ -191,6 +213,7 @@ function App() {
     setGroupBy("");
     setOrder(columns.map((c) => c.id));
     setSizes({});
+    setVisibility(buildVisibility(columns));
   };
 
   return (
@@ -306,6 +329,29 @@ function App() {
           </label>
 
           <div className="field">
+            <span className="field-label">Columns</span>
+            <div className="columns-menu">
+              {columns
+                .filter((c) => c.manageable)
+                .map((c) => (
+                  <label className="columns-item" key={c.id}>
+                    <input
+                      type="checkbox"
+                      checked={isColumnVisible(c.id, visibility)}
+                      onChange={(e) =>
+                        setVisibility((v) => ({
+                          ...v,
+                          [c.id]: e.target.checked,
+                        }))
+                      }
+                    />
+                    <span>{c.label}</span>
+                  </label>
+                ))}
+            </div>
+          </div>
+
+          <div className="field">
             <span className="field-label">&nbsp;</span>
             <div className="builder">
               <button type="button" onClick={exportCsv}>
@@ -319,10 +365,14 @@ function App() {
         </div>
 
         <p className="hint">
-          Drag a <strong>header</strong> to reorder · drag a header's{" "}
+          <strong>Scroll the table sideways</strong> — <em>#</em> and{" "}
+          <em>Item</em> are frozen, so they stay put while the rest slides under
+          them (that hairline is the frozen edge). Drag a{" "}
+          <strong>header</strong> to reorder · drag a header's{" "}
           <strong>right edge</strong> to resize (or focus it and press ←/→) ·
-          click a header to sort. The first two columns are frozen, so they are
-          excluded from reordering.
+          click a header to sort, <strong>shift-click</strong> a second header
+          to sort by both (the small number is the sort rank). Frozen columns
+          are excluded from reordering.
           {byCategory
             ? " Category mode is on: a column can only move within identity / facts / metrics."
             : ""}
@@ -361,7 +411,9 @@ function App() {
           className="demo-grid"
           rows={rows}
           columns={columns}
+          getRowId={(row) => row.sku}
           filter={ast}
+          columnVisibility={visibility}
           sorting={sorting}
           onSortingChange={setSorting}
           groupBy={groupBy}

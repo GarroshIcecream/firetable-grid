@@ -1,0 +1,22 @@
+{
+  // Declaration build only. The root tsconfig is the *development* one: it
+  // pulls in tests, examples and the demo, and sets `types: ["bun"]`, none of
+  // which belong in what consumers receive.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    // tsup's dts worker injects `baseUrl`, which TypeScript 6 deprecates and
+    // reports as TS5101. Nothing here relies on it; this only stops the
+    // injected option from failing the build.
+    "ignoreDeprecations": "6.0",
+    // Consumers bring their own globals, so bun's ambient declarations must not
+    // leak into the emitted d.ts. Node's are kept because the `/server` entry
+    // genuinely builds on `node:stream` — only that subpath's d.ts references
+    // them, and anything importing it is running in Node anyway.
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["node_modules", "tests", "examples", "demo"]
+}

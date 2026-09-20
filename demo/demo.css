@@ -126,6 +126,24 @@ button:hover {
   display: flex;
   gap: 6px;
 }
+/* Column show/hide. Wraps rather than scrolls so every column stays reachable
+   without a second scroll container inside the toolbar. */
+.columns-menu {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  max-width: 340px;
+}
+.columns-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.columns-item input {
+  margin: 0;
+}
 .primary {
   background: var(--accent);
   border-color: var(--accent);

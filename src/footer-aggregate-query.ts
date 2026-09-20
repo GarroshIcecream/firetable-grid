@@ -1,3 +1,4 @@
+import { isColumnVisible } from "./column-schema";
 import type { AggregationType } from "./column-vocabulary";
 
 type FooterAggregateColumn = {
@@ -29,7 +30,7 @@ export function buildFooterAggregateQuery(
     .filter(
       (column) =>
         column.type.aggregatable &&
-        columnVisibility[column.id] !== false &&
+        isColumnVisible(column.id, columnVisibility) &&
         selections[column.id] !== undefined,
     )
     .map((column) => ({

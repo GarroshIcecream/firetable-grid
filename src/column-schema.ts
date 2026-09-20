@@ -1,4 +1,5 @@
 import type { RowData } from "@tanstack/react-table";
+import type { ReactNode } from "react";
 import type { CellBreakdownSpec } from "./breakdown";
 import type {
   ColumnType,
@@ -13,7 +14,7 @@ import type { ThresholdList } from "./threshold";
 export interface FilterOption {
   value: string;
   label: string;
-  badge?: React.ReactNode;
+  badge?: ReactNode;
 }
 
 export interface SchemaColumn<TData extends RowData> {
@@ -39,7 +40,7 @@ export interface SchemaColumn<TData extends RowData> {
   searchable: boolean;
   getFilterValue?: (row: TData) => unknown;
   cellVariant?: string;
-  cell?: (ctx: AppCellContext<TData, unknown>) => React.ReactNode;
+  cell?: (ctx: AppCellContext<TData, unknown>) => ReactNode;
   breakdown?: CellBreakdownSpec<TData>;
   category?: string;
   thresholds?: ThresholdList;
@@ -74,7 +75,7 @@ interface ColDef<TData extends RowData> {
   searchable?: boolean;
   getFilterValue?: (row: TData) => unknown;
   cellVariant?: string;
-  cell?: (ctx: AppCellContext<TData, unknown>) => React.ReactNode;
+  cell?: (ctx: AppCellContext<TData, unknown>) => ReactNode;
   breakdown?: CellBreakdownSpec<TData>;
   category?: string;
   thresholds?: ThresholdList;
@@ -217,6 +218,24 @@ export function buildColOrder<TData extends RowData>(
   columns: SchemaColumn<TData>[],
 ): string[] {
   return columns.map((c) => c.id);
+}
+
+/**
+ * Is a column currently visible?
+ *
+ * `columnVisibility` is the runtime override; a column's own `visible` flag is
+ * only the default the schema ships, which `buildVisibility()` seeds the record
+ * from. A column the record does not mention is visible - that is the whole
+ * contract, and it has to be read the same way everywhere: the CSV/XLSX export,
+ * the footer aggregate query and the grid itself all gate on it, so a second
+ * interpretation is what makes "export exactly what is on screen" stop being
+ * true the first time someone hides a column.
+ */
+export function isColumnVisible(
+  columnId: string,
+  columnVisibility: Readonly<Record<string, boolean>> | undefined,
+): boolean {
+  return columnVisibility?.[columnId] !== false;
 }
 
 // Build initial visibility state from schema

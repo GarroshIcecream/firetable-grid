@@ -63,6 +63,28 @@ export function buildRowPositionsFromFlatItems<
 }
 
 /**
+ * Display positions keyed by the flat item's own `rowIndex`.
+ *
+ * The same 1..n numbering as `buildRowPositionsFromFlatItems`, for callers
+ * that render straight from the flat items and have no TanStack row objects to
+ * key on. Those callers were synthesizing `rows.map((_, i) => ({ id: String(i) }))`
+ * purely to satisfy the signature above - a throwaway object and a throwaway
+ * string per row, rebuilt on every filter, sort or grouping change - and then
+ * paying another `String(rowIndex)` per rendered cell to read it back.
+ */
+export function buildRowPositionsByIndex(
+  flatItems: readonly FlatItem[],
+): ReadonlyMap<number, number> {
+  const positions = new Map<number, number>();
+  let position = 0;
+  for (const item of flatItems) {
+    if (item.type !== "row") continue;
+    positions.set(item.rowIndex, ++position);
+  }
+  return positions;
+}
+
+/**
  * The number to render in the `#` cell.
  *
  * Falls back to `row.index + 1` when no lookup is present (a table that hasn't

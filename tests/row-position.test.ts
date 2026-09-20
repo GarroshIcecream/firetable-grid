@@ -12,6 +12,7 @@ import {
 import { storeReactivityBindings } from "@tanstack/table-core/store-reactivity-bindings";
 import {
   buildFlatItems,
+  buildRowPositionsByIndex,
   buildRowPositionsFromFlatItems,
   displayRowPosition,
   type FlatItem,
@@ -163,6 +164,65 @@ describe("buildRowPositionsFromFlatItems", () => {
     expect(positions.get("audi-30")).toBe(2);
     expect(positions.get("bmw-90")).toBe(3);
     expect(positions.get("bmw-40")).toBe(4);
+  });
+});
+
+describe("buildRowPositionsByIndex", () => {
+  test("numbers rows 1..n in visual order, keyed by row index", () => {
+    const rows = [
+      { id: "bmw-90", make: "BMW", price: 90 },
+      { id: "audi-80", make: "Audi", price: 80 },
+      { id: "bmw-40", make: "BMW", price: 40 },
+      { id: "audi-30", make: "Audi", price: 30 },
+    ].map((original) => ({ original }));
+    const flatItems = buildFlatItems(rows, "make", "asc");
+
+    // Visual order is Audi 80 (index 1), Audi 30 (3), BMW 90 (0), BMW 40 (2).
+    expect(buildRowPositionsByIndex(flatItems)).toEqual(
+      new Map([
+        [1, 1],
+        [3, 2],
+        [0, 3],
+        [2, 4],
+      ]),
+    );
+  });
+
+  test("agrees with the row-keyed builder on the same flat items", () => {
+    const originals = [
+      { id: "bmw-90", make: "BMW", price: 90 },
+      { id: "audi-80", make: "Audi", price: 80 },
+      { id: "bmw-40", make: "BMW", price: 40 },
+      { id: "audi-30", make: "Audi", price: 30 },
+    ];
+    const rows = originals.map((original, index) => ({
+      id: original.id,
+      index,
+      original,
+    }));
+    const flatItems = buildFlatItems(rows, "make", "asc");
+    const byId = buildRowPositionsFromFlatItems(
+      flatItems,
+      rows as unknown as Parameters<typeof buildRowPositionsFromFlatItems>[1],
+    );
+    const byIndex = buildRowPositionsByIndex(flatItems);
+
+    for (const [rowIndex, position] of byIndex) {
+      expect(byId.get(originals[rowIndex].id)).toBe(position);
+    }
+    expect(byIndex.size).toBe(byId.size);
+  });
+
+  test("skips group headers and collapsed rows", () => {
+    const rows = [
+      { original: { make: "BMW" } },
+      { original: { make: "Audi" } },
+      { original: { make: "BMW" } },
+    ];
+    const flatItems = buildFlatItems(rows, "make", "asc", new Set(["BMW"]));
+
+    // Only the Audi row renders, so it is the one and only position.
+    expect(buildRowPositionsByIndex(flatItems)).toEqual(new Map([[1, 1]]));
   });
 });
 

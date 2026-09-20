@@ -20,8 +20,26 @@ describe("toYmd", () => {
     expect(toYmd("2025-10-24 10:14:36.000")).toBe("2025-10-24");
     expect(toYmd("2026-06-08T14:42:55.000Z")).toBe("2026-06-08");
   });
-  test("handles Date objects via their UTC calendar day", () => {
-    expect(toYmd(new Date("2026-06-08T14:42:55.000Z"))).toBe("2026-06-08");
+  // The rule is the LOCAL calendar day, in every timezone the suite may run in.
+  // `toISOString().slice(0, 10)` is the UTC day, which is a different day for
+  // most of the clock: local midnight is the previous day east of Greenwich,
+  // and a local evening is already tomorrow west of it. `relativeBucket` and
+  // ExcelJS both reason in local time, so UTC here put them a day apart.
+  test("handles Date objects via their LOCAL calendar day", () => {
+    expect(toYmd(new Date(2026, 5, 8, 14, 42, 55))).toBe("2026-06-08");
+  });
+  test("a Date at local midnight keeps its own day", () => {
+    expect(toYmd(new Date(2026, 5, 8))).toBe("2026-06-08");
+    expect(toYmd(new Date(2026, 0, 1))).toBe("2026-01-01");
+  });
+  test("a Date late in the local evening has not rolled over yet", () => {
+    expect(toYmd(new Date(2026, 5, 8, 23, 30))).toBe("2026-06-08");
+  });
+  test("round-trips every local calendar day across a DST boundary", () => {
+    for (let day = 24; day <= 31; day++) {
+      const date = new Date(2026, 2, day);
+      expect(toYmd(date)).toBe(`2026-03-${String(day).padStart(2, "0")}`);
+    }
   });
   test("returns empty string for missing or unparseable values", () => {
     expect(toYmd(null)).toBe("");

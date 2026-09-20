@@ -13,7 +13,11 @@ import {
   sortRowsForExport,
   thresholdClasses,
 } from "../src";
-import { buildFlatItems, groupSortDirection } from "../src/layout";
+import {
+  buildColumnLayout,
+  buildFlatItems,
+  groupSortDirection,
+} from "../src/layout";
 
 const rows = buildRows();
 const columns = buildColumns();
@@ -201,5 +205,52 @@ describe("export", () => {
         ext: "csv",
       }),
     ).toBe("inventory_category_2026-09-20.csv");
+  });
+});
+
+// The demo page tells the reader to scroll sideways and watch `#` and `Item`
+// stay put. Frozen columns are only *visible* once the table is wider than the
+// viewport, so a demo whose columns fit on screen demonstrates nothing while
+// every unit test still passes. These assert the page can keep its promise.
+describe("the demo can actually show frozen columns", () => {
+  const frozen = columns.filter((c) => c.frozen);
+
+  test("the grid is wider than a laptop viewport, so it scrolls sideways", () => {
+    const total = columns.reduce((sum, c) => sum + c.width, 0);
+    // Comfortably past a 1440px screen minus the demo's own side panel.
+    expect(total).toBeGreaterThan(1600);
+  });
+
+  test("the frozen block is narrow enough to leave room to scroll", () => {
+    const frozenWidth = frozen.reduce((sum, c) => sum + c.width, 0);
+    expect(frozenWidth).toBeLessThan(400);
+  });
+
+  test("frozen columns resolve to sticky offsets, in order, with an edge", () => {
+    const layout = buildColumnLayout(
+      columns.map((c) => ({
+        id: c.id,
+        item: c,
+        minWidth: c.minWidth,
+        size: c.width,
+      })),
+      frozen.map((c) => c.id),
+    );
+
+    const pinned = layout.filter((entry) => entry.isPinned);
+    expect(pinned.map((entry) => entry.id)).toEqual(frozen.map((c) => c.id));
+
+    // Each one sticks at the running width of the ones before it.
+    let left = 0;
+    for (const entry of pinned) {
+      expect(entry.stickyLeft).toBe(left);
+      left += entry.size;
+    }
+
+    // Exactly one trailing edge, on the last pinned column - that hairline is
+    // what stops frozen content floating over the scrolled columns.
+    expect(pinned.filter((entry) => entry.isLastPinned)).toHaveLength(1);
+    expect(pinned.at(-1)?.isLastPinned).toBe(true);
+    expect(layout.filter((entry) => entry.isLastPinned)).toHaveLength(1);
   });
 });

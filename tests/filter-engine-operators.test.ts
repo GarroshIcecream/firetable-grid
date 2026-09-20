@@ -203,3 +203,55 @@ describe("group inner AND/OR (#3)", () => {
     expect(run(ast)).toEqual(["c"]);
   });
 });
+
+// Both of these were found by differential-fuzzing the compiled filter against
+// the original row-at-a-time evaluator. They cover operators that a column's
+// type does not define - reachable from a saved view whose column changed type
+// under it, which is exactly when a filter must not quietly widen.
+describe("operators a column does not define", () => {
+  type Mixed = { num: number | string | null };
+  const mixed = [
+    col<Mixed>({ id: "num", label: "Num", type: ColumnTypes.NUMBER }),
+  ];
+  const mixedRows: Mixed[] = [
+    { num: 5 },
+    { num: "abc" },
+    { num: null },
+    { num: 0 },
+  ];
+
+  test("an inapplicable operator still excludes non-numeric rows", () => {
+    // "on" is a date operator. It compares nothing here, but a row whose value
+    // is not a number must not pass a numeric filter it never satisfied.
+    const ast: FilterAST = {
+      search: "",
+      and: [{ field: "num", op: "on", val: "0" }],
+      orGroups: [],
+    };
+    expect(applyAST(mixedRows, ast, mixed)).toEqual([{ num: 5 }, { num: 0 }]);
+  });
+
+  test("a separator-only multi-select value still excludes empty rows", () => {
+    // "," splits to no values, so it selects nothing and filters nothing - but
+    // the empty-row exclusion still applies, because the value is not blank.
+    type Enm = { enm: string | null };
+    const enumCols = [
+      col<Enm>({
+        id: "enm",
+        label: "Enum",
+        type: ColumnTypes.BADGE,
+        filterOptions: [
+          { value: "a", label: "A" },
+          { value: "b", label: "B" },
+        ],
+      }),
+    ];
+    const enumRows: Enm[] = [{ enm: "a" }, { enm: "" }, { enm: null }];
+    const ast: FilterAST = {
+      search: "",
+      and: [{ field: "enm", op: "is", val: "," }],
+      orGroups: [],
+    };
+    expect(applyAST(enumRows, ast, enumCols)).toEqual([{ enm: "a" }]);
+  });
+});

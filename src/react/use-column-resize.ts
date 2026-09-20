@@ -1,4 +1,8 @@
+"use client";
+
 import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
   type RefObject,
   useCallback,
   useEffect,
@@ -87,7 +91,7 @@ export function useColumnResize({
   }, [writeOffsets]);
 
   const onResizeStart = useCallback(
-    (id: string, event: React.PointerEvent<HTMLElement>) => {
+    (id: string, event: ReactPointerEvent<HTMLElement>) => {
       if (!enabled) return;
       const column = columnsRef.current.find((c) => c.id === id);
       if (!column) return;
@@ -126,7 +130,7 @@ export function useColumnResize({
 
   /** Keyboard equivalent, so a resize is not pointer-only. */
   const onResizeKeyDown = useCallback(
-    (id: string, event: React.KeyboardEvent<HTMLElement>) => {
+    (id: string, event: ReactKeyboardEvent<HTMLElement>) => {
       if (!enabled) return;
       const step = event.shiftKey ? 32 : 8;
       const delta =

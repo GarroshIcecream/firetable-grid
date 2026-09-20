@@ -1,5 +1,5 @@
 import type { Hue, PaletteColor } from "./palette";
-import { gridTheme } from "./theme";
+import { type GridTheme, gridTheme } from "./theme";
 
 type Vec3 = [number, number, number];
 
@@ -81,11 +81,39 @@ function linearRgbToHex(rgb: Vec3): string {
   return `#${bytes.join("")}`;
 }
 
+// Every shade is a pure function of (theme, hue, shade), and there are only a
+// few dozen of them - but the OKLab round trip underneath is three cube roots
+// and three pow(1/2.4) calls, and the xlsx writer asks for one per coloured
+// cell. Memoize per theme: `gridTheme()` hands back a new object whenever the
+// theme is reconfigured, so comparing identity retires the cache without any
+// coupling back to `configureGridTheme`.
+let cachedTheme: GridTheme | null = null;
+let shadeCache = new Map<string, string>();
+
+function shadeCacheFor(theme: GridTheme): Map<string, string> {
+  if (theme !== cachedTheme) {
+    cachedTheme = theme;
+    shadeCache = new Map();
+  }
+  return shadeCache;
+}
+
 export function paletteShadeHex(hue: Hue, shade: number): string {
+  const theme = gridTheme();
+  const cache = shadeCacheFor(theme);
+  const cacheKey = `${hue}:${shade}`;
+  const hit = cache.get(cacheKey);
+  if (hit !== undefined) return hit;
+  const computed = computeShadeHex(theme, hue, shade);
+  cache.set(cacheKey, computed);
+  return computed;
+}
+
+function computeShadeHex(theme: GridTheme, hue: Hue, shade: number): string {
   const mix = SHADE_MIX[shade];
-  if (!mix) return gridTheme().baseHex[hue];
+  if (!mix) return theme.baseHex[hue];
   const [lightness, a, b] = linearRgbToOklab(
-    hexToLinearRgb(gridTheme().baseHex[hue]),
+    hexToLinearRgb(theme.baseHex[hue]),
   );
   // White and black are achromatic, so their OKLCh hue is powerless and CSS
   // carries the chromatic endpoint's hue through unchanged (CSS Color 4 §12.2).
@@ -104,13 +132,50 @@ function hexToArgb(hex: string): string {
   return `FF${hex.slice(1).toUpperCase()}`;
 }
 
+// Cached on the same terms as `paletteShadeHex`: the xlsx writer calls both
+// once per coloured cell, and each one is a class-name lookup, a regex and a
+// couple of string rebuilds on top of the shade itself.
+let argbTheme: GridTheme | null = null;
+let fillArgbCache = new Map<string, string>();
+let textArgbCache = new Map<string, string>();
+
+function argbCaches(theme: GridTheme): {
+  fill: Map<string, string>;
+  text: Map<string, string>;
+} {
+  if (theme !== argbTheme) {
+    argbTheme = theme;
+    fillArgbCache = new Map();
+    textArgbCache = new Map();
+  }
+  return { fill: fillArgbCache, text: textArgbCache };
+}
+
 export function paletteFillArgb(color: PaletteColor): string {
-  const swatch = gridTheme().palette[color.hue][color.level];
-  return hexToArgb(paletteShadeHex(color.hue, swatch.shade));
+  const theme = gridTheme();
+  const cache = argbCaches(theme).fill;
+  const cacheKey = `${color.hue}:${color.level}`;
+  const hit = cache.get(cacheKey);
+  if (hit !== undefined) return hit;
+  const swatch = theme.palette[color.hue][color.level];
+  const computed = hexToArgb(paletteShadeHex(color.hue, swatch.shade));
+  cache.set(cacheKey, computed);
+  return computed;
 }
 
 export function paletteTextArgb(color: PaletteColor): string {
-  const className = gridTheme().palette[color.hue][color.level].text;
+  const theme = gridTheme();
+  const cache = argbCaches(theme).text;
+  const cacheKey = `${color.hue}:${color.level}`;
+  const hit = cache.get(cacheKey);
+  if (hit !== undefined) return hit;
+  const computed = computeTextArgb(theme, color);
+  cache.set(cacheKey, computed);
+  return computed;
+}
+
+function computeTextArgb(theme: GridTheme, color: PaletteColor): string {
+  const className = theme.palette[color.hue][color.level].text;
   if (className === "text-white") return hexToArgb(WHITE_HEX);
   const match = /^text-([a-z]+)-(\d+)$/.exec(className);
   if (!match) return hexToArgb(WHITE_HEX);

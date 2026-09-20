@@ -29,6 +29,7 @@
     "./styles/grid.css": "./styles/grid.css"
   },
   "scripts": {
+    "build": "tsup",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "lint": "biome check",
@@ -76,6 +77,7 @@
     "react": "^19",
     "react-dom": "^19",
     "server-only": "^0.0.1",
+    "tsup": "^8.5.1",
     "typescript": "^6.0.3",
     "zod": "^4.6.2"
   },

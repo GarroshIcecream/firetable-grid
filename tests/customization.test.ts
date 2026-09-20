@@ -3,11 +3,17 @@ import {
   configureGridTheme,
   DEFAULT_PALETTE,
   gridTheme,
+  HUES,
+  LEVELS,
+  paletteFillArgb,
   paletteShadeHex,
+  paletteTextArgb,
   resetGridTheme,
-  stagedDayThresholdListSchema,
   thresholdBgClass,
+  thresholdClasses,
+  thresholdTextClass,
 } from "../src";
+import { stagedDayThresholdListSchema } from "../src/schema";
 
 afterEach(resetGridTheme);
 
@@ -53,6 +59,24 @@ describe("theme overrides", () => {
     configureGridTheme({ baseHex: { ...gridTheme().baseHex, red: "#000000" } });
     resetGridTheme();
     expect(gridTheme().baseHex.red).toBe("#ed2939");
+  });
+
+  test("export colours follow a rebrand, not the first theme they saw", () => {
+    // Shade and ARGB lookups are memoized per theme - the xlsx writer asks for
+    // one per coloured cell. Warm the caches, then confirm reconfiguring and
+    // resetting both retire them.
+    const color = { hue: "green", level: "dark" } as const;
+    const defaultFill = paletteFillArgb(color);
+    const defaultText = paletteTextArgb(color);
+
+    configureGridTheme({
+      baseHex: { ...gridTheme().baseHex, green: "#00ff00" },
+    });
+    expect(paletteFillArgb(color)).not.toBe(defaultFill);
+
+    resetGridTheme();
+    expect(paletteFillArgb(color)).toBe(defaultFill);
+    expect(paletteTextArgb(color)).toBe(defaultText);
   });
 });
 
@@ -103,5 +127,43 @@ describe("stagedDayThresholdListSchema", () => {
 
   test("refuses a nonsensical bucket count at construction", () => {
     expect(() => stagedDayThresholdListSchema(1)).toThrow(RangeError);
+  });
+});
+
+describe("threshold colour classes", () => {
+  test("bg and text are returned as a readable pair", () => {
+    // A light fill needs dark text; a dark fill needs near-white. Shipping only
+    // the background leaves the text at whatever it inherited.
+    const light = { hue: "blue", level: "light" } as const;
+    const dark = { hue: "blue", level: "dark" } as const;
+    expect(thresholdBgClass(light)).toBe("bg-blue-10");
+    expect(thresholdTextClass(light)).toBe("text-blue-80");
+    expect(thresholdTextClass(dark)).toBe("text-white");
+    expect(thresholdClasses(light)).toBe("bg-blue-10 text-blue-80");
+  });
+
+  test("every hue and level has both halves", () => {
+    for (const hue of HUES) {
+      for (const level of LEVELS) {
+        const color = { hue, level };
+        expect(thresholdBgClass(color)).toStartWith("bg-");
+        expect(thresholdTextClass(color)).toStartWith("text-");
+      }
+    }
+  });
+
+  test("the text class follows a palette override too", () => {
+    configureGridTheme({
+      palette: {
+        ...DEFAULT_PALETTE,
+        blue: {
+          ...DEFAULT_PALETTE.blue,
+          light: { ...DEFAULT_PALETTE.blue.light, text: "text-brand-ink" },
+        },
+      },
+    });
+    expect(thresholdTextClass({ hue: "blue", level: "light" })).toBe(
+      "text-brand-ink",
+    );
   });
 });

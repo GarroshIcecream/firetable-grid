@@ -188,15 +188,23 @@ export function buildFlatItems<TData>(
     else groups.set(sortKey, { label, indices: [rowIndex] });
   }
 
-  const sortedGroups = Array.from(groups.entries()).sort(([a], [b]) => {
-    const av = a.toLowerCase();
-    const bv = b.toLowerCase();
-    const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+  // Sort on a lowercased key computed once per group, not once per comparison:
+  // a comparator that lowercases both sides does it O(n log n) times, which for
+  // a few thousand groups is tens of thousands of throwaway strings.
+  const sortedGroups = Array.from(groups, ([key, group]) => ({
+    key,
+    group,
+    sortOn: key.toLowerCase(),
+  })).sort((a, b) => {
+    const cmp = a.sortOn < b.sortOn ? -1 : a.sortOn > b.sortOn ? 1 : 0;
     return groupDir === "asc" ? cmp : -cmp;
   });
 
   const items: FlatItem[] = [];
-  for (const [key, { label, indices }] of sortedGroups) {
+  for (const {
+    key,
+    group: { label, indices },
+  } of sortedGroups) {
     items.push({ type: "group-header", key, label, count: indices.length });
     if (collapsedGroups?.has(key)) continue;
     for (const rowIndex of indices) {
@@ -264,29 +272,46 @@ export function pendingRowRunway({
   return Math.max(0, Math.min(pageSize, remaining));
 }
 
+/**
+ * Footer aggregate over a numeric column.
+ *
+ * Single pass, no intermediate array. `Math.min(...values)` reads naturally
+ * but passes every row as a separate argument, and an argument list that long
+ * overflows the call stack: V8 throws `RangeError: Maximum call stack size
+ * exceeded` somewhere past ~125k arguments, so a min/max footer used to crash
+ * the grid on exactly the datasets big enough to want one.
+ */
 export function computeRowsAgg<TData>(
   rows: readonly { original: TData }[],
   colId: string,
   aggType: AggregationType,
 ): number | null {
-  const values: number[] = [];
+  let count = 0;
+  let sum = 0;
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+
   for (const row of rows) {
     const value = (row.original as Record<string, unknown>)[colId];
-    if (typeof value === "number") values.push(value);
+    if (typeof value !== "number") continue;
+    count++;
+    sum += value;
+    if (value < min) min = value;
+    if (value > max) max = value;
   }
-  if (values.length === 0) return null;
+  if (count === 0) return null;
 
   switch (aggType) {
     case "avg":
-      return values.reduce((a, b) => a + b, 0) / values.length;
+      return sum / count;
     case "sum":
-      return values.reduce((a, b) => a + b, 0);
+      return sum;
     case "min":
-      return Math.min(...values);
+      return min;
     case "max":
-      return Math.max(...values);
+      return max;
     case "count":
-      return values.length;
+      return count;
   }
 }
 

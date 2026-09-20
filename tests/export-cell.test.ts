@@ -125,7 +125,17 @@ describe("resolveExportCell — value typing", () => {
       noColours,
     );
     expect(cell.value).toBeInstanceOf(Date);
-    expect((cell.value as Date).toISOString()).toBe("2026-05-12T08:30:00.000Z");
+    // A date column carries a calendar day, not an instant: the value lands on
+    // LOCAL midnight of the string's YYYY-MM-DD prefix. That is what makes the
+    // workbook agree with `toYmd`, which the filter and grouping paths use —
+    // and ExcelJS writes a Date at its local wall clock, so a UTC-parsed
+    // "2026-05-12" would surface as the 11th anywhere west of Greenwich.
+    const value = cell.value as Date;
+    expect(value.getFullYear()).toBe(2026);
+    expect(value.getMonth()).toBe(4);
+    expect(value.getDate()).toBe(12);
+    expect(value.getHours()).toBe(0);
+    expect(value.getMinutes()).toBe(0);
   });
 
   test("an unparseable date degrades to null rather than a broken cell", () => {

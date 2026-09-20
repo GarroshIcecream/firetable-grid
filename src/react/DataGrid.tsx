@@ -1,19 +1,23 @@
+"use client";
+
 import type { RowData } from "@tanstack/react-table";
 import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
 import type { CategoryResolver } from "../column-category-layout";
-import type { SchemaColumn } from "../column-schema";
+import {
+  buildVisibility,
+  isColumnVisible,
+  type SchemaColumn,
+} from "../column-schema";
 import type { FilterAST } from "../filter-engine";
 import { applyAST, isFilterASTEmpty } from "../filter-engine";
 import {
+  buildCellSpecs,
   buildColumnLayout,
   buildFlatItems,
-  buildRowPositionsFromFlatItems,
+  buildRowPositionsByIndex,
   CELL_ALIGNMENT_CLASS,
   type ColumnLayoutEntry,
   cellPaddingClass,
-  cellVerticalAlignClass,
-  columnLeft,
-  columnWidth,
   EMPTY_GROUP_KEY,
   type GroupValueFn,
   groupSortDirection,
@@ -22,6 +26,7 @@ import {
   ROW_INDEX_TEXT_CLASS,
 } from "../layout";
 import { sortRowsForExport } from "../sort-rows";
+import { getColumnSortState, toggleColumnSorting } from "../sorting-state";
 import { useColumnReorder } from "./use-column-reorder";
 import { MAX_COLUMN_WIDTH, useColumnResize } from "./use-column-resize";
 
@@ -39,8 +44,16 @@ export interface DataGridProps<TData extends RowData> {
   /** Filter state. Omit for an unfiltered grid. */
   filter?: FilterAST;
 
+  /** Stable row identity. Without it rows key on their position, so a filter,
+   *  a sort or an arriving page makes React reuse one row's DOM for another -
+   *  which bleeds cell state (an open popover, a focused input) across rows. */
+  getRowId?: (row: TData) => string;
+
   sorting?: readonly SortEntry[];
   onSortingChange?: (sorting: SortEntry[]) => void;
+  /** Sort by more than one column at once, up to `MAX_TABLE_SORT_COLUMNS`.
+   *  Shift-click a header to add a column to the sort. On by default. */
+  multiSort?: boolean;
 
   groupBy?: string;
   getGroupValue?: GroupValueFn;
@@ -55,6 +68,19 @@ export interface DataGridProps<TData extends RowData> {
   columnSizes?: Readonly<Record<string, number>>;
   onColumnSizesChange?: (sizes: Record<string, number>) => void;
 
+  /**
+   * Which columns are shown, by id. Read-only: the grid has no column manager
+   * of its own, so nothing inside it writes here - your manager owns the state
+   * and passes it down. Absent from the record means visible; seed it with
+   * `buildVisibility(columns)` to start from the schema's own defaults, which
+   * is what the grid does when you leave this off.
+   *
+   * It is the same record `selectExportColumns` and `buildFooterAggregateQuery`
+   * read, so hiding a column drops it from the screen, the export and the
+   * footer query together.
+   */
+  columnVisibility?: Readonly<Record<string, boolean>>;
+
   /** Drag to reorder columns. Off unless you ask for it. */
   reorderable?: boolean;
   /** Restricts a reorder drag to columns sharing a category. */
@@ -65,20 +91,6 @@ export interface DataGridProps<TData extends RowData> {
   wrapCells?: boolean;
   className?: string;
   emptyMessage?: ReactNode;
-}
-
-function cellStyle<TData extends RowData>(
-  entry: ColumnLayoutEntry<SchemaColumn<TData>>,
-) {
-  const w = columnWidth(entry.id, entry.size);
-  return {
-    width: w,
-    minWidth: w,
-    maxWidth: w,
-    ...(entry.stickyLeft !== undefined
-      ? { left: columnLeft(entry.id, entry.stickyLeft) }
-      : {}),
-  };
 }
 
 function edgeClass<TData extends RowData>(
@@ -97,8 +109,10 @@ export function DataGrid<TData extends RowData>({
   columns,
   renderCell,
   filter,
+  getRowId,
   sorting,
   onSortingChange,
+  multiSort = true,
   groupBy = "",
   getGroupValue,
   collapsedGroups,
@@ -107,6 +121,7 @@ export function DataGrid<TData extends RowData>({
   onColumnOrderChange,
   columnSizes,
   onColumnSizesChange,
+  columnVisibility,
   reorderable = false,
   categoryOf,
   resizable = true,
@@ -131,6 +146,14 @@ export function DataGrid<TData extends RowData>({
   const sizes = columnSizes ?? ownSizes;
   const activeSorting = sorting ?? ownSorting;
   const collapsed = collapsedGroups ?? ownCollapsed;
+  // Derived, not owned: nothing inside the grid writes visibility, so this has
+  // to track `columns` rather than freeze at mount - otherwise a column added
+  // later renders even when its schema says `visible: false`.
+  const schemaVisibility = useMemo(
+    () => buildVisibility([...columns]),
+    [columns],
+  );
+  const visibility = columnVisibility ?? schemaVisibility;
 
   const setOrder = useCallback(
     (next: string[]) => {
@@ -184,8 +207,8 @@ export function DataGrid<TData extends RowData>({
     for (const column of columns) {
       if (!seen.has(column.id)) out.push(column);
     }
-    return out.filter((c) => c.visible);
-  }, [columns, order]);
+    return out.filter((c) => isColumnVisible(c.id, visibility));
+  }, [columns, order, visibility]);
 
   const layout = useMemo(
     () =>
@@ -199,6 +222,20 @@ export function DataGrid<TData extends RowData>({
         ordered.filter((c) => c.frozen).map((c) => c.id),
       ),
     [ordered, sizes],
+  );
+
+  // Class list and style are functions of the *column*, not the row, but a
+  // naive body loop re-derives both inside the per-row `layout.map` - and
+  // allocates a fresh style object per cell. `buildCellSpecs` is the engine's
+  // own hoist for exactly that; `metaOf` is the identity here because a
+  // SchemaColumn already carries `type`, `breakdown` and `cellTint`.
+  const cellSpecs = useMemo(
+    () =>
+      buildCellSpecs<TData, SchemaColumn<TData>>(layout, {
+        wrapCells,
+        metaOf: (column) => column,
+      }),
+    [layout, wrapCells],
   );
 
   const visible = useMemo(
@@ -221,12 +258,8 @@ export function DataGrid<TData extends RowData>({
   }, [sorted, groupBy, activeSorting, collapsed, getGroupValue]);
 
   const positions = useMemo(
-    () =>
-      buildRowPositionsFromFlatItems(
-        flatItems,
-        sorted.map((_, i) => ({ id: String(i) })) as never,
-      ),
-    [flatItems, sorted],
+    () => buildRowPositionsByIndex(flatItems),
+    [flatItems],
   );
 
   // Pinned columns are excluded: a frozen column that drifts out of the frozen
@@ -261,37 +294,42 @@ export function DataGrid<TData extends RowData>({
     enabled: resizable,
   });
 
-  const onHeaderClick = (column: SchemaColumn<TData>) => {
-    if (!column.sortable) return;
-    const current = activeSorting.find((s) => s.id === column.id);
+  const sortableIds = useMemo(
+    () => new Set(columns.filter((c) => c.sortable).map((c) => c.id)),
+    [columns],
+  );
+
+  // Delegates to the engine's own `toggleColumnSorting` rather than repeating
+  // the asc → desc → off cycle here: that helper also caps the sort at
+  // MAX_TABLE_SORT_COLUMNS and drops ids that are no longer sortable, which a
+  // hand-rolled single-column toggle silently could not do.
+  const onHeaderClick = (column: SchemaColumn<TData>, additive: boolean) => {
     setSorting(
-      !current
-        ? [{ id: column.id, desc: false }]
-        : current.desc
-          ? []
-          : [{ id: column.id, desc: true }],
+      toggleColumnSorting([...activeSorting], column.id, {
+        multi: multiSort && additive,
+        sortableIds,
+      }),
     );
   };
-
-  const vAlign = cellVerticalAlignClass(wrapCells);
-  const wrapClass = wrapCells
-    ? "whitespace-normal wrap-break-word"
-    : "whitespace-nowrap";
 
   return (
     <div ref={frameRef} className={cx("ftg-frame", className)}>
       <table className="ftg-grid">
         <thead>
           <tr>
-            {layout.map((entry) => {
+            {layout.map((entry, columnIndex) => {
               const column = entry.item;
-              const sort = activeSorting.find((s) => s.id === column.id);
+              const sort = getColumnSortState([...activeSorting], column.id);
               return (
                 <th
                   key={entry.id}
                   data-column-id={entry.id}
                   aria-sort={
-                    sort ? (sort.desc ? "descending" : "ascending") : undefined
+                    sort
+                      ? sort.direction === "desc"
+                        ? "descending"
+                        : "ascending"
+                      : undefined
                   }
                   className={cx(
                     "ftg-th",
@@ -305,14 +343,19 @@ export function DataGrid<TData extends RowData>({
                     reorder.overId === entry.id && "ftg-drop-target",
                     resize.activeId === entry.id && "ftg-resizing",
                   )}
-                  style={cellStyle(entry)}
+                  style={cellSpecs[columnIndex].style}
                   {...reorder.dragProps(entry.id)}
-                  onClick={() => onHeaderClick(column)}
+                  onClick={(e) => onHeaderClick(column, e.shiftKey)}
                 >
                   <span className="ftg-th-label">{column.label}</span>
                   {sort ? (
                     <span className="ftg-sort-mark" aria-hidden="true">
-                      {sort.desc ? " ↓" : " ↑"}
+                      {sort.direction === "desc" ? " ↓" : " ↑"}
+                      {/* Which column sorts first. Without it a multi-column
+                          sort is two identical arrows and no way to tell. */}
+                      {activeSorting.length > 1 ? (
+                        <span className="ftg-sort-index">{sort.index + 1}</span>
+                      ) : null}
                     </span>
                   ) : null}
                   {resizable ? (
@@ -369,28 +412,22 @@ export function DataGrid<TData extends RowData>({
             }
             const row = sorted[item.rowIndex];
             return (
-              <tr key={`r:${item.rowIndex}`} className="ftg-row">
-                {layout.map((entry) => {
+              <tr
+                key={getRowId ? getRowId(row) : `r:${item.rowIndex}`}
+                className="ftg-row"
+              >
+                {layout.map((entry, columnIndex) => {
                   const column = entry.item;
+                  const spec = cellSpecs[columnIndex];
                   return (
                     <td
                       key={entry.id}
-                      className={cx(
-                        cellPaddingClass(column.type),
-                        "py-2",
-                        vAlign,
-                        "overflow-hidden text-ellipsis",
-                        wrapClass,
-                        entry.isPinned && "sticky z-10",
-                        edgeClass(entry),
-                        column.type.cellAlignment &&
-                          CELL_ALIGNMENT_CLASS[column.type.cellAlignment],
-                      )}
-                      style={cellStyle(entry)}
+                      className={spec.staticClass}
+                      style={spec.style}
                     >
                       {column.type.dataType === "index" ? (
                         <span className={ROW_INDEX_TEXT_CLASS}>
-                          {positions.get(String(item.rowIndex)) ?? ""}
+                          {positions.get(item.rowIndex) ?? ""}
                         </span>
                       ) : (
                         renderCell(column, row)

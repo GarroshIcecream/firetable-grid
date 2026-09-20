@@ -22,6 +22,14 @@ export interface Item {
   marginTrend: number;
   quality: number;
   addedOn: string;
+  warehouse: string;
+  unitsOnHand: number;
+  reorderPoint: number;
+  leadTimeDays: number;
+  lastCountedOn: string;
+  returnsRate: number;
+  weightKg: number;
+  status: string;
 }
 
 const CATEGORIES = ["Frames", "Wheels", "Drivetrain", "Brakes", "Apparel"];
@@ -70,9 +78,20 @@ export function buildRows(count = 28): Item[] {
       marginTrend: Math.round((rand() * 40 - 20) * 10) / 10,
       quality: Math.round(rand() * 100) / 100,
       addedOn: `2026-0${1 + Math.floor(rand() * 9)}-${String(day).padStart(2, "0")}`,
+      warehouse: pick(WAREHOUSES),
+      unitsOnHand: Math.floor(rand() * 400),
+      reorderPoint: 20 + Math.floor(rand() * 80),
+      leadTimeDays: 2 + Math.floor(rand() * 40),
+      lastCountedOn: `2026-0${1 + Math.floor(rand() * 9)}-${String(1 + Math.floor(rand() * 28)).padStart(2, "0")}`,
+      returnsRate: Math.round(rand() * 100) / 100,
+      weightKg: Math.round(rand() * 2400) / 100,
+      status: pick(STATUSES),
     };
   });
 }
+
+const WAREHOUSES = ["Rotterdam", "Hamburg", "Lyon", "Katowice"];
+const STATUSES = ["active", "clearance", "discontinued", "backorder"];
 
 const options = (values: readonly string[]) =>
   values.map((value) => ({ value, label: value }));
@@ -158,6 +177,64 @@ export function buildColumns(): SchemaColumn<Item>[] {
       label: "Added",
       type: ColumnTypes.DATE,
       width: 120,
+      groupable: true,
+    }),
+    // Everything below exists to make the grid wider than any viewport. Frozen
+    // columns are only visible once there is something to scroll past them,
+    // and a ten-column demo that fits on screen demonstrates nothing.
+    col<Item>({
+      id: "warehouse",
+      label: "Warehouse",
+      type: ColumnTypes.BADGE,
+      width: 130,
+      groupable: true,
+      filterOptions: options(WAREHOUSES),
+    }),
+    col<Item>({
+      id: "status",
+      label: "Status",
+      type: ColumnTypes.BADGE,
+      width: 130,
+      groupable: true,
+      filterOptions: options(STATUSES),
+    }),
+    col<Item>({
+      id: "unitsOnHand",
+      label: "On hand",
+      type: ColumnTypes.RAW_NUMBER,
+      width: 110,
+    }),
+    col<Item>({
+      id: "reorderPoint",
+      label: "Reorder at",
+      type: ColumnTypes.RAW_NUMBER,
+      width: 115,
+    }),
+    col<Item>({
+      id: "leadTimeDays",
+      label: "Lead time",
+      type: ColumnTypes.DAYS,
+      width: 115,
+      thresholds: DAYS_DEFAULT_THRESHOLDS,
+    }),
+    col<Item>({
+      id: "returnsRate",
+      label: "Returns",
+      type: ColumnTypes.PROGRESS,
+      width: 120,
+      thresholds: ATTENTION_DEFAULT_THRESHOLDS,
+    }),
+    col<Item>({
+      id: "weightKg",
+      label: "Weight",
+      type: ColumnTypes.DECIMAL,
+      width: 110,
+    }),
+    col<Item>({
+      id: "lastCountedOn",
+      label: "Last counted",
+      type: ColumnTypes.DATE,
+      width: 130,
       groupable: true,
     }),
   ];

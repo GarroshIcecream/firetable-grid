@@ -1,4 +1,11 @@
-import { useCallback, useRef, useState } from "react";
+"use client";
+
+import {
+  type DragEvent as ReactDragEvent,
+  useCallback,
+  useRef,
+  useState,
+} from "react";
 import {
   type CategoryResolver,
   moveColumnWithinCategory,
@@ -50,14 +57,14 @@ export function useColumnReorder({
       if (!enabled || !participating.has(id)) return {};
       return {
         draggable: true,
-        onDragStart: (e: React.DragEvent<HTMLElement>) => {
+        onDragStart: (e: ReactDragEvent<HTMLElement>) => {
           active.current = id;
           setActiveId(id);
           e.dataTransfer.effectAllowed = "move";
           // Firefox ignores a drag that carries no payload.
           e.dataTransfer.setData("text/plain", id);
         },
-        onDragOver: (e: React.DragEvent<HTMLElement>) => {
+        onDragOver: (e: ReactDragEvent<HTMLElement>) => {
           const from = active.current;
           if (!from || from === id) return;
           e.preventDefault();
@@ -67,7 +74,7 @@ export function useColumnReorder({
         onDragLeave: () => {
           setOverId((current) => (current === id ? null : current));
         },
-        onDrop: (e: React.DragEvent<HTMLElement>) => {
+        onDrop: (e: ReactDragEvent<HTMLElement>) => {
           e.preventDefault();
           const from = active.current ?? e.dataTransfer.getData("text/plain");
           reset();

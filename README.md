@@ -135,11 +135,13 @@ them with its `on…Change` partner to take control and persist it:
 ```tsx
 <DataGrid
   rows={rows} columns={columns} renderCell={renderCell}
+  getRowId={(row) => row.id}                     // stable row identity
   filter={ast}                                   // a FilterAST
   sorting={sorting} onSortingChange={setSorting}
   groupBy="category"
   columnOrder={order} onColumnOrderChange={setOrder}
   columnSizes={sizes} onColumnSizesChange={setSizes}
+  columnVisibility={visibility}                  // read-only: your manager owns it
   reorderable                                    // opt in to drag-to-reorder
   categoryOf={(id) => CATEGORY[id]}              // optional: confine a drag
 />;
@@ -148,6 +150,25 @@ them with its `on…Change` partner to take control and persist it:
 `renderCell` keeps the cell DOM yours — the component owns layout, sticky
 offsets, ordering, sizing and grouping, and tells you which renderer a column
 wants via `column.type.cellRenderer`.
+
+**Pass `getRowId`.** Without it rows key on their position, so a filter, a sort
+or an arriving page makes React reuse one row's DOM for another — which bleeds
+cell state (an open popover, a focused input) from one row into the next.
+
+**Sorting is multi-column** — click a header to cycle asc → desc → off,
+shift-click to add a column to the sort. It runs through `toggleColumnSorting`,
+so the sort is capped at `MAX_TABLE_SORT_COLUMNS` (5) and a column that stops
+being sortable drops out on the next click. Pass `multiSort={false}` for
+single-column only. When more than one column is sorted each header shows its
+rank next to the arrow.
+
+**`columnVisibility` is read-only.** The grid ships no column manager, so
+nothing inside it writes there — yours owns the state and passes it down. A
+column absent from the record is visible; seed it with `buildVisibility(columns)`
+to start from the schema's own `visible` flags, which is what the grid does when
+you leave the prop off. It is the same record `selectExportColumns()` and
+`buildFooterAggregateQuery()` read, so hiding a column drops it from the screen,
+the export and the footer query together.
 
 **Reordering** runs on native HTML5 drag events; there is no drag-and-drop
 library. The hook only produces the `(active, over)` pair and
@@ -208,7 +229,8 @@ Two details worth knowing before you restyle:
   the position in the *unfiltered* data, so a filtered table numbers rows
   "1, 4, 7, 10". This counts the rows actually on screen.
 
-Both lists that key on your renderer names are overridable:
+Both lists that key on your renderer names are overridable, and `metaOf` says
+where a column's cell metadata lives on *your* layout item:
 
 ```ts
 buildCellSpecs(layout, {
@@ -216,8 +238,14 @@ buildCellSpecs(layout, {
   enableSelection,
   denseCellRenderers: new Set(["sparkline"]),   // tighter gutter
   skeletonShapes: { sparkline: "bar" },         // merged over the defaults
+  metaOf: (column) => column,                   // for a SchemaColumn layout
 });
 ```
+
+`metaOf` defaults to the TanStack header shape (`item.column.columnDef.meta`).
+A `SchemaColumn` already carries `type`, `breakdown` and `cellTint` at its top
+level, so a schema-driven layout passes the identity — which is exactly what
+`<DataGrid>` does, so the per-column hoist is not TanStack-only.
 
 This subpath returns Tailwind class names as strings and renders no markup, so
 the DOM stays yours. It needs `react` (types only, except for the resize hook)

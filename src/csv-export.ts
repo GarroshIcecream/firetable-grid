@@ -11,13 +11,18 @@
 
 import type { ColumnVisibilityState, RowData } from "@tanstack/react-table";
 
-import type { SchemaColumn } from "./column-schema";
+import { isColumnVisible, type SchemaColumn } from "./column-schema";
+import { toLocalYmd } from "./date-grouping";
 import {
   type ExportCellContext,
   exportCellText,
   PLAIN_EXPORT_CONTEXT,
   resolveExportCell,
 } from "./export-cell";
+
+/** Formats every table export offers. Shared by the export dialog, the API
+ *  routes and the client fetchers. */
+export type TableExportFormat = "csv" | "xlsx";
 
 // ---------------------------------------------------------------------------
 // Pure helpers
@@ -72,7 +77,7 @@ function isExportable<TData extends RowData>(
   columnVisibility: ColumnVisibilityState,
   rows: readonly TData[],
 ): boolean {
-  if (columnVisibility[col.id] === false) return false;
+  if (!isColumnVisible(col.id, columnVisibility)) return false;
   if (!col.manageable) return false;
   if (!col.exportable) return false;
   if (!col.accessorKey) return false;
@@ -109,10 +114,32 @@ export function resolveCellValue<TData extends RowData>(
  * double-quotes are doubled. Values without those characters are emitted
  * raw.
  */
+const DOUBLE_QUOTE = 34;
+const COMMA = 44;
+const CARRIAGE_RETURN = 13;
+const LINE_FEED = 10;
+
+/** Character scan rather than `/[",\r\n]/.test(value)`: this runs once per
+ *  cell - 400,000 times for a 20,000-row export of 20 columns - and the vast
+ *  majority of cells need no quoting at all, so the check itself is the cost. */
+function needsCsvQuoting(value: string): boolean {
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (
+      code === DOUBLE_QUOTE ||
+      code === COMMA ||
+      code === CARRIAGE_RETURN ||
+      code === LINE_FEED
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function escapeCsvCell(value: string): string {
   if (value === "") return "";
-  const needsQuoting = /[",\r\n]/.test(value);
-  if (!needsQuoting) return value;
+  if (!needsCsvQuoting(value)) return value;
   return `"${value.replace(/"/g, '""')}"`;
 }
 
@@ -125,17 +152,26 @@ export function buildCsvString<TData extends RowData>(
   columns: readonly SchemaColumn<TData>[],
   ctx: ExportCellContext<TData> = PLAIN_EXPORT_CONTEXT,
 ): string {
-  const lines: string[] = [];
-  lines.push(columns.map((c) => escapeCsvCell(c.label)).join(","));
-  for (const row of rows) {
-    const cells = columns.map((c) =>
-      escapeCsvCell(resolveCellValue(row, c, ctx)),
-    );
-    lines.push(cells.join(","));
-  }
+  // Appended into one string rather than joining an array of joined rows: the
+  // two-level version allocated an array and a string per row on top of the
+  // cells themselves, and engines already represent `+=` as a rope that is
+  // flattened once at the end.
+  //
   // CRLF per RFC 4180. Excel handles either, but CRLF avoids occasional
   // mis-parses from older spreadsheet importers.
-  return lines.join("\r\n");
+  let out = "";
+  for (let i = 0; i < columns.length; i++) {
+    if (i > 0) out += ",";
+    out += escapeCsvCell(columns[i].label);
+  }
+  for (const row of rows) {
+    out += "\r\n";
+    for (let i = 0; i < columns.length; i++) {
+      if (i > 0) out += ",";
+      out += escapeCsvCell(resolveCellValue(row, columns[i], ctx));
+    }
+  }
+  return out;
 }
 
 /**
@@ -144,16 +180,11 @@ export function buildCsvString<TData extends RowData>(
  */
 export function buildExportFilename(opts: {
   prefix: string;
-  /** Optional middle segment, e.g. the filter or tenant the rows came from. */
   scope?: string | null;
   date?: Date;
-  ext?: "csv" | "xlsx";
+  ext?: TableExportFormat;
 }): string {
-  const date = opts.date ?? new Date();
-  const yyyy = String(date.getFullYear()).padStart(4, "0");
-  const mm = String(date.getMonth() + 1).padStart(2, "0");
-  const dd = String(date.getDate()).padStart(2, "0");
-  const dateStr = `${yyyy}-${mm}-${dd}`;
+  const dateStr = toLocalYmd(opts.date ?? new Date());
   const ext = opts.ext ?? "csv";
   const slug = (opts.scope ?? "").trim();
   if (slug) return `${opts.prefix}_${slug}_${dateStr}.${ext}`;
@@ -198,7 +229,3 @@ export function downloadBlob(filename: string, blob: Blob): void {
   // explicitly so we don't pin the (potentially large) blob in memory.
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
-
-/** Formats every table export offers. Shared by the export dialog, the API
- *  routes and the client fetchers. */
-export type TableExportFormat = "csv" | "xlsx";
