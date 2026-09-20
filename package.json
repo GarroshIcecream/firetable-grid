@@ -19,7 +19,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./server": "./src/server.ts",
-    "./styles/palette.css": "./styles/palette.css"
+    "./styles/palette.css": "./styles/palette.css",
+    "./layout": "./src/layout/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -29,10 +30,11 @@
   },
   "peerDependencies": {
     "@tanstack/react-table": ">=9",
+    "@tanstack/react-virtual": "^3",
     "exceljs": "^4.4.0",
+    "react": ">=18",
     "server-only": "^0.0.1",
-    "zod": "^4",
-    "react": ">=18"
+    "zod": "^4"
   },
   "peerDependenciesMeta": {
     "exceljs": {
@@ -43,11 +45,15 @@
     },
     "react": {
       "optional": true
+    },
+    "@tanstack/react-virtual": {
+      "optional": true
     }
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.11",
     "@tanstack/react-table": "9.2.4",
+    "@tanstack/react-virtual": "^3.14.13",
     "@types/bun": "latest",
     "@types/react": "^19",
     "exceljs": "^4.4.0",

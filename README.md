@@ -102,6 +102,63 @@ The class names and the export hexes are two halves of one contract: `styles/pal
 
 Call `configureGridTheme()` before anything renders: helpers read the active theme at call time, so a later change will not repaint what is already on screen.
 
+## Layout (`firetable-grid/layout`)
+
+The engine gives you rows; this is the half that renders them as a virtualized
+grid with frozen columns — the part most reimplementations get wrong twice.
+
+```ts
+import {
+  buildFlatItems,
+  buildColumnLayout,
+  buildCellSpecs,
+  columnWidth,
+  displayRowPosition,
+} from "firetable-grid/layout";
+
+// group headers and rows interleaved into one virtualizable list
+const flatItems = buildFlatItems(rows, "make", "asc", collapsed);
+
+// pinned columns first, each with its sticky offset resolved
+const layout = buildColumnLayout(columns, pinnedIds);
+
+// per-column cell facts, hoisted out of the per-row loop
+const specs = buildCellSpecs(layout, { wrapCells, enableSelection: true });
+```
+
+Column widths and sticky offsets travel as CSS custom properties
+(`--ftg-size-*`, `--ftg-left-*`), hex-encoded from the column id so any accessor
+key stays a valid, collision-free CSS identifier. That is what lets
+`useColumnResizePreview()` drive a drag entirely in CSS without re-rendering a
+single memoized cell.
+
+Two details worth knowing before you restyle:
+
+- **The frozen edge is deliberately split.** A 1px border rides with the last
+  pinned cell so a browser that lags sticky cells during overscroll can never
+  float frozen content past it; the drop shadow is a *single overlay* above the
+  scroll container, because per-cell it renders as banded seams where the blur
+  fades out at each row edge.
+- **`displayRowPosition()` is not `row.index + 1`.** TanStack's `row.index` is
+  the position in the *unfiltered* data, so a filtered table numbers rows
+  "1, 4, 7, 10". This counts the rows actually on screen.
+
+Both lists that key on your renderer names are overridable:
+
+```ts
+buildCellSpecs(layout, {
+  wrapCells,
+  enableSelection,
+  denseCellRenderers: new Set(["sparkline"]),   // tighter gutter
+  skeletonShapes: { sparkline: "bar" },         // merged over the defaults
+});
+```
+
+This subpath returns Tailwind class names as strings and renders no markup, so
+the DOM stays yours. It needs `react` (types only, except for the resize hook)
+and `@tanstack/react-virtual` for `useColumnResizePreview` — both optional peers.
+It pulls in no UI kit.
+
 ## What else is in the box
 
 | | |
@@ -121,7 +178,7 @@ Both snippets above live in `examples/` as compiling code — `bun run typecheck
 
 ```bash
 bun install
-bun test          # 207 tests
+bun test          # 279 tests
 bun run typecheck
 bun run lint
 ```
