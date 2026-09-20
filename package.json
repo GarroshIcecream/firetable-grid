@@ -8,9 +8,10 @@
     "type": "git",
     "url": "git+https://github.com/carsdatacom/firetable-grid.git"
   },
-  "main": "src/index.ts",
-  "types": "src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "files": [
+    "dist",
     "src",
     "styles",
     "examples",
@@ -20,12 +21,27 @@
     "**/*.css"
   ],
   "exports": {
-    ".": "./src/index.ts",
-    "./schema": "./src/schema.ts",
-    "./server": "./src/server.ts",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./schema": {
+      "types": "./dist/schema.d.ts",
+      "import": "./dist/schema.js"
+    },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
+    },
+    "./layout": {
+      "types": "./dist/layout/index.d.ts",
+      "import": "./dist/layout/index.js"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.js"
+    },
     "./styles/palette.css": "./styles/palette.css",
-    "./layout": "./src/layout/index.ts",
-    "./react": "./src/react/index.ts",
     "./styles/grid.css": "./styles/grid.css"
   },
   "scripts": {
@@ -34,7 +50,8 @@
     "test": "bun test",
     "lint": "biome check",
     "format": "biome format --write",
-    "demo": "bun demo/build.ts"
+    "demo": "bun demo/build.ts",
+    "prepare": "bun run build"
   },
   "peerDependencies": {
     "@tanstack/react-table": ">=9",

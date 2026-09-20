@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 
 import * as barrel from "../src";
@@ -144,8 +144,50 @@ describe("package.json declares the entry points it ships", () => {
     readFileSync(resolve(import.meta.dir, "../package.json"), "utf8"),
   );
 
+  const codeEntries = Object.entries(pkg.exports).filter(
+    ([subpath]) => !subpath.endsWith(".css"),
+  ) as [string, { types: string; import: string }][];
+
   test("./schema is exported", () => {
-    expect(pkg.exports["./schema"]).toBe("./src/schema.ts");
+    expect(pkg.exports["./schema"]).toEqual({
+      types: "./dist/schema.d.ts",
+      import: "./dist/schema.js",
+    });
+  });
+
+  test("every code entry ships the build, not the source", () => {
+    // Source under node_modules is a trap: Node refuses to strip types there
+    // (ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING), and a consumer's `tsc`
+    // would compile ours - so `skipLibCheck` never applies and every OPTIONAL
+    // peer turns mandatory (no exceljs => TS2307 out of `xlsx-sheet.ts`).
+    expect(codeEntries.length).toBeGreaterThan(0);
+    for (const [subpath, entry] of codeEntries) {
+      expect(entry.types, subpath).toMatch(/^\.\/dist\/.+\.d\.ts$/);
+      expect(entry.import, subpath).toMatch(/^\.\/dist\/.+\.js$/);
+    }
+    expect(pkg.main).toMatch(/^\.\/dist\//);
+    expect(pkg.types).toMatch(/^\.\/dist\//);
+    expect(pkg.files).toContain("dist");
+  });
+
+  test("a git install builds itself, since dist is not committed", () => {
+    // Installed from git there is no `dist`, and `exports` points into it.
+    expect(pkg.scripts.prepare).toBe("bun run build");
+  });
+
+  test("every declared entry point was actually built", () => {
+    // The tsup entry list and `exports` are maintained by hand and drift apart
+    // silently: a subpath with no entry resolves to a file nobody ever built.
+    const dist = resolve(import.meta.dir, "../dist");
+    if (!existsSync(dist)) return; // nothing built in this working tree yet
+    for (const [subpath, entry] of codeEntries) {
+      for (const target of [entry.types, entry.import]) {
+        expect(
+          existsSync(resolve(import.meta.dir, "..", target)),
+          `${subpath} -> ${target}`,
+        ).toBe(true);
+      }
+    }
   });
 
   test("zod is an optional peer, like the other conditional ones", () => {
