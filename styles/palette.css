@@ -1,0 +1,492 @@
+/* FireTable Grid colour ramp.
+ * 14 hues x 11 stops (5..100), each derived from one `--color-<hue>-base`.
+ * Import this once in your app (after Tailwind) to give the grid its colours,
+ * or copy it and change the base hues to rebrand the whole palette.
+ * The `initial` clears drop Tailwind stock palettes that would otherwise
+ * collide with these names. */
+
+@theme {
+  --color-slate-*: initial;
+  --color-gray-*: initial;
+  --color-zinc-*: initial;
+  --color-neutral-*: initial;
+  --color-orange-*: initial;
+  --color-amber-*: initial;
+  --color-yellow-*: initial;
+  --color-lime-*: initial;
+  --color-green-*: initial;
+  --color-emerald-*: initial;
+  --color-teal-*: initial;
+  --color-cyan-*: initial;
+  --color-sky-*: initial;
+  --color-blue-*: initial;
+  --color-indigo-*: initial;
+  --color-violet-*: initial;
+  --color-purple-*: initial;
+  --color-fuchsia-*: initial;
+  --color-pink-*: initial;
+  --color-rose-*: initial;
+
+  --color-white: #fff;
+  --color-black: #000;
+  --color-transparent: transparent;
+  --color-current: currentColor;
+  --color-inherit: inherit;
+
+  /* Base hues */
+  --color-blue-base: light-dark(#339aff, #4da7ff);
+  --color-coral-base: light-dark(#ff6d38, #ff7847);
+  --color-cyan-base: light-dark(#00c3f5, #0acdff);
+  --color-fuchsia-base: light-dark(#ff7ae7, #ff8ae9);
+  --color-gray-base: light-dark(#8894aa, #73819b);
+  --color-green-base: light-dark(#00c276, #47d191);
+  --color-indigo-base: light-dark(#5a55f5, #6a66f7);
+  --color-orange-base: light-dark(#ffa000, #ffaa1a);
+  --color-purple-base: light-dark(#8e75f0, #a18cf2);
+  --color-red-base: light-dark(#ed2939, #ef4351);
+  --color-rose-base: light-dark(#ff668b, #ff7596);
+  --color-teal-base: light-dark(#00cccc, #00d6d6);
+  --color-violet-base: light-dark(#6464f7, #6e6ef7);
+  --color-yellow-base: light-dark(#ffce0c, #ffd633);
+
+  /* Derived stops */
+  --color-blue-5: color-mix(in oklch, var(--color-blue-base) 10%, white 90%);
+  --color-blue-10: color-mix(in oklch, var(--color-blue-base) 25%, white 75%);
+  --color-blue-20: color-mix(in oklch, var(--color-blue-base) 45%, white 55%);
+  --color-blue-30: color-mix(in oklch, var(--color-blue-base) 70%, white 30%);
+  --color-blue-40: color-mix(in oklch, var(--color-blue-base) 85%, white 15%);
+  --color-blue-50: color-mix(in oklch, var(--color-blue-base) 100%, white 0%);
+  --color-blue-60: color-mix(in oklch, var(--color-blue-base) 85%, black 15%);
+  --color-blue-70: color-mix(in oklch, var(--color-blue-base) 70%, black 30%);
+  --color-blue-80: color-mix(in oklch, var(--color-blue-base) 55%, black 45%);
+  --color-blue-90: color-mix(in oklch, var(--color-blue-base) 45%, black 55%);
+  --color-blue-100: color-mix(in oklch, var(--color-blue-base) 35%, black 65%);
+
+  --color-coral-5: color-mix(in oklch, var(--color-coral-base) 10%, white 90%);
+  --color-coral-10: color-mix(in oklch, var(--color-coral-base) 25%, white 75%);
+  --color-coral-20: color-mix(in oklch, var(--color-coral-base) 45%, white 55%);
+  --color-coral-30: color-mix(in oklch, var(--color-coral-base) 70%, white 30%);
+  --color-coral-40: color-mix(in oklch, var(--color-coral-base) 85%, white 15%);
+  --color-coral-50: color-mix(in oklch, var(--color-coral-base) 100%, white 0%);
+  --color-coral-60: color-mix(in oklch, var(--color-coral-base) 85%, black 15%);
+  --color-coral-70: color-mix(in oklch, var(--color-coral-base) 70%, black 30%);
+  --color-coral-80: color-mix(in oklch, var(--color-coral-base) 55%, black 45%);
+  --color-coral-90: color-mix(in oklch, var(--color-coral-base) 45%, black 55%);
+  --color-coral-100: color-mix(
+    in oklch,
+    var(--color-coral-base) 35%,
+    black 65%
+  );
+
+  --color-cyan-5: color-mix(in oklch, var(--color-cyan-base) 10%, white 90%);
+  --color-cyan-10: color-mix(in oklch, var(--color-cyan-base) 25%, white 75%);
+  --color-cyan-20: color-mix(in oklch, var(--color-cyan-base) 45%, white 55%);
+  --color-cyan-30: color-mix(in oklch, var(--color-cyan-base) 70%, white 30%);
+  --color-cyan-40: color-mix(in oklch, var(--color-cyan-base) 85%, white 15%);
+  --color-cyan-50: color-mix(in oklch, var(--color-cyan-base) 100%, white 0%);
+  --color-cyan-60: color-mix(in oklch, var(--color-cyan-base) 85%, black 15%);
+  --color-cyan-70: color-mix(in oklch, var(--color-cyan-base) 70%, black 30%);
+  --color-cyan-80: color-mix(in oklch, var(--color-cyan-base) 55%, black 45%);
+  --color-cyan-90: color-mix(in oklch, var(--color-cyan-base) 45%, black 55%);
+  --color-cyan-100: color-mix(in oklch, var(--color-cyan-base) 35%, black 65%);
+
+  --color-fuchsia-5: color-mix(
+    in oklch,
+    var(--color-fuchsia-base) 10%,
+    white 90%
+  );
+  --color-fuchsia-10: color-mix(
+    in oklch,
+    var(--color-fuchsia-base) 25%,
+    white 75%
+  );
+  --color-fuchsia-20: color-mix(
+    in oklch,
+    var(--color-fuchsia-base) 45%,
+    white 55%
+  );
+  --color-fuchsia-30: color-mix(
+    in oklch,
+    var(--color-fuchsia-base) 70%,
+    white 30%
+  );
+  --color-fuchsia-40: color-mix(
+    in oklch,
+    var(--color-fuchsia-base) 85%,
+    white 15%
+  );
+  --color-fuchsia-50: color-mix(
+    in oklch,
+    var(--color-fuchsia-base) 100%,
+    white 0%
+  );
+  --color-fuchsia-60: color-mix(
+    in oklch,
+    var(--color-fuchsia-base) 85%,
+    black 15%
+  );
+  --color-fuchsia-70: color-mix(
+    in oklch,
+    var(--color-fuchsia-base) 70%,
+    black 30%
+  );
+  --color-fuchsia-80: color-mix(
+    in oklch,
+    var(--color-fuchsia-base) 55%,
+    black 45%
+  );
+  --color-fuchsia-90: color-mix(
+    in oklch,
+    var(--color-fuchsia-base) 45%,
+    black 55%
+  );
+  --color-fuchsia-100: color-mix(
+    in oklch,
+    var(--color-fuchsia-base) 35%,
+    black 65%
+  );
+
+  --color-gray-5: color-mix(in oklch, var(--color-gray-base) 10%, white 90%);
+  --color-gray-10: color-mix(in oklch, var(--color-gray-base) 25%, white 75%);
+  --color-gray-20: color-mix(in oklch, var(--color-gray-base) 45%, white 55%);
+  --color-gray-30: color-mix(in oklch, var(--color-gray-base) 70%, white 30%);
+  --color-gray-40: color-mix(in oklch, var(--color-gray-base) 85%, white 15%);
+  --color-gray-50: color-mix(in oklch, var(--color-gray-base) 100%, white 0%);
+  --color-gray-60: color-mix(in oklch, var(--color-gray-base) 85%, black 15%);
+  --color-gray-70: color-mix(in oklch, var(--color-gray-base) 70%, black 30%);
+  --color-gray-80: color-mix(in oklch, var(--color-gray-base) 55%, black 45%);
+  --color-gray-90: color-mix(in oklch, var(--color-gray-base) 45%, black 55%);
+  --color-gray-100: color-mix(in oklch, var(--color-gray-base) 35%, black 65%);
+
+  --color-green-5: color-mix(in oklch, var(--color-green-base) 10%, white 90%);
+  --color-green-10: color-mix(in oklch, var(--color-green-base) 25%, white 75%);
+  --color-green-20: color-mix(in oklch, var(--color-green-base) 45%, white 55%);
+  --color-green-30: color-mix(in oklch, var(--color-green-base) 70%, white 30%);
+  --color-green-40: color-mix(in oklch, var(--color-green-base) 85%, white 15%);
+  --color-green-50: color-mix(in oklch, var(--color-green-base) 100%, white 0%);
+  --color-green-60: color-mix(in oklch, var(--color-green-base) 85%, black 15%);
+  --color-green-70: color-mix(in oklch, var(--color-green-base) 70%, black 30%);
+  --color-green-80: color-mix(in oklch, var(--color-green-base) 55%, black 45%);
+  --color-green-90: color-mix(in oklch, var(--color-green-base) 45%, black 55%);
+  --color-green-100: color-mix(
+    in oklch,
+    var(--color-green-base) 35%,
+    black 65%
+  );
+
+  --color-indigo-5: color-mix(
+    in oklch,
+    var(--color-indigo-base) 10%,
+    white 90%
+  );
+  --color-indigo-10: color-mix(
+    in oklch,
+    var(--color-indigo-base) 25%,
+    white 75%
+  );
+  --color-indigo-20: color-mix(
+    in oklch,
+    var(--color-indigo-base) 45%,
+    white 55%
+  );
+  --color-indigo-30: color-mix(
+    in oklch,
+    var(--color-indigo-base) 70%,
+    white 30%
+  );
+  --color-indigo-40: color-mix(
+    in oklch,
+    var(--color-indigo-base) 85%,
+    white 15%
+  );
+  --color-indigo-50: color-mix(
+    in oklch,
+    var(--color-indigo-base) 100%,
+    white 0%
+  );
+  --color-indigo-60: color-mix(
+    in oklch,
+    var(--color-indigo-base) 85%,
+    black 15%
+  );
+  --color-indigo-70: color-mix(
+    in oklch,
+    var(--color-indigo-base) 70%,
+    black 30%
+  );
+  --color-indigo-80: color-mix(
+    in oklch,
+    var(--color-indigo-base) 55%,
+    black 45%
+  );
+  --color-indigo-90: color-mix(
+    in oklch,
+    var(--color-indigo-base) 45%,
+    black 55%
+  );
+  --color-indigo-100: color-mix(
+    in oklch,
+    var(--color-indigo-base) 35%,
+    black 65%
+  );
+
+  --color-orange-5: color-mix(
+    in oklch,
+    var(--color-orange-base) 10%,
+    white 90%
+  );
+  --color-orange-10: color-mix(
+    in oklch,
+    var(--color-orange-base) 25%,
+    white 75%
+  );
+  --color-orange-20: color-mix(
+    in oklch,
+    var(--color-orange-base) 45%,
+    white 55%
+  );
+  --color-orange-30: color-mix(
+    in oklch,
+    var(--color-orange-base) 70%,
+    white 30%
+  );
+  --color-orange-40: color-mix(
+    in oklch,
+    var(--color-orange-base) 85%,
+    white 15%
+  );
+  --color-orange-50: color-mix(
+    in oklch,
+    var(--color-orange-base) 100%,
+    white 0%
+  );
+  --color-orange-60: color-mix(
+    in oklch,
+    var(--color-orange-base) 85%,
+    black 15%
+  );
+  --color-orange-70: color-mix(
+    in oklch,
+    var(--color-orange-base) 70%,
+    black 30%
+  );
+  --color-orange-80: color-mix(
+    in oklch,
+    var(--color-orange-base) 55%,
+    black 45%
+  );
+  --color-orange-90: color-mix(
+    in oklch,
+    var(--color-orange-base) 45%,
+    black 55%
+  );
+  --color-orange-100: color-mix(
+    in oklch,
+    var(--color-orange-base) 35%,
+    black 65%
+  );
+
+  --color-purple-5: color-mix(
+    in oklch,
+    var(--color-purple-base) 10%,
+    white 90%
+  );
+  --color-purple-10: color-mix(
+    in oklch,
+    var(--color-purple-base) 25%,
+    white 75%
+  );
+  --color-purple-20: color-mix(
+    in oklch,
+    var(--color-purple-base) 45%,
+    white 55%
+  );
+  --color-purple-30: color-mix(
+    in oklch,
+    var(--color-purple-base) 70%,
+    white 30%
+  );
+  --color-purple-40: color-mix(
+    in oklch,
+    var(--color-purple-base) 85%,
+    white 15%
+  );
+  --color-purple-50: color-mix(
+    in oklch,
+    var(--color-purple-base) 100%,
+    white 0%
+  );
+  --color-purple-60: color-mix(
+    in oklch,
+    var(--color-purple-base) 85%,
+    black 15%
+  );
+  --color-purple-70: color-mix(
+    in oklch,
+    var(--color-purple-base) 70%,
+    black 30%
+  );
+  --color-purple-80: color-mix(
+    in oklch,
+    var(--color-purple-base) 55%,
+    black 45%
+  );
+  --color-purple-90: color-mix(
+    in oklch,
+    var(--color-purple-base) 45%,
+    black 55%
+  );
+  --color-purple-100: color-mix(
+    in oklch,
+    var(--color-purple-base) 35%,
+    black 65%
+  );
+
+  --color-red-5: color-mix(in oklch, var(--color-red-base) 10%, white 90%);
+  --color-red-10: color-mix(in oklch, var(--color-red-base) 25%, white 75%);
+  --color-red-20: color-mix(in oklch, var(--color-red-base) 45%, white 55%);
+  --color-red-30: color-mix(in oklch, var(--color-red-base) 70%, white 30%);
+  --color-red-40: color-mix(in oklch, var(--color-red-base) 85%, white 15%);
+  --color-red-50: color-mix(in oklch, var(--color-red-base) 100%, white 0%);
+  --color-red-60: color-mix(in oklch, var(--color-red-base) 85%, black 15%);
+  --color-red-70: color-mix(in oklch, var(--color-red-base) 70%, black 30%);
+  --color-red-80: color-mix(in oklch, var(--color-red-base) 55%, black 45%);
+  --color-red-90: color-mix(in oklch, var(--color-red-base) 45%, black 55%);
+  --color-red-100: color-mix(in oklch, var(--color-red-base) 35%, black 65%);
+
+  --color-rose-5: color-mix(in oklch, var(--color-rose-base) 10%, white 90%);
+  --color-rose-10: color-mix(in oklch, var(--color-rose-base) 25%, white 75%);
+  --color-rose-20: color-mix(in oklch, var(--color-rose-base) 45%, white 55%);
+  --color-rose-30: color-mix(in oklch, var(--color-rose-base) 70%, white 30%);
+  --color-rose-40: color-mix(in oklch, var(--color-rose-base) 85%, white 15%);
+  --color-rose-50: color-mix(in oklch, var(--color-rose-base) 100%, white 0%);
+  --color-rose-60: color-mix(in oklch, var(--color-rose-base) 85%, black 15%);
+  --color-rose-70: color-mix(in oklch, var(--color-rose-base) 70%, black 30%);
+  --color-rose-80: color-mix(in oklch, var(--color-rose-base) 55%, black 45%);
+  --color-rose-90: color-mix(in oklch, var(--color-rose-base) 45%, black 55%);
+  --color-rose-100: color-mix(in oklch, var(--color-rose-base) 35%, black 65%);
+
+  --color-teal-5: color-mix(in oklch, var(--color-teal-base) 10%, white 90%);
+  --color-teal-10: color-mix(in oklch, var(--color-teal-base) 25%, white 75%);
+  --color-teal-20: color-mix(in oklch, var(--color-teal-base) 45%, white 55%);
+  --color-teal-30: color-mix(in oklch, var(--color-teal-base) 70%, white 30%);
+  --color-teal-40: color-mix(in oklch, var(--color-teal-base) 85%, white 15%);
+  --color-teal-50: color-mix(in oklch, var(--color-teal-base) 100%, white 0%);
+  --color-teal-60: color-mix(in oklch, var(--color-teal-base) 85%, black 15%);
+  --color-teal-70: color-mix(in oklch, var(--color-teal-base) 70%, black 30%);
+  --color-teal-80: color-mix(in oklch, var(--color-teal-base) 55%, black 45%);
+  --color-teal-90: color-mix(in oklch, var(--color-teal-base) 45%, black 55%);
+  --color-teal-100: color-mix(in oklch, var(--color-teal-base) 35%, black 65%);
+
+  --color-violet-5: color-mix(
+    in oklch,
+    var(--color-violet-base) 10%,
+    white 90%
+  );
+  --color-violet-10: color-mix(
+    in oklch,
+    var(--color-violet-base) 25%,
+    white 75%
+  );
+  --color-violet-20: color-mix(
+    in oklch,
+    var(--color-violet-base) 45%,
+    white 55%
+  );
+  --color-violet-30: color-mix(
+    in oklch,
+    var(--color-violet-base) 70%,
+    white 30%
+  );
+  --color-violet-40: color-mix(
+    in oklch,
+    var(--color-violet-base) 85%,
+    white 15%
+  );
+  --color-violet-50: color-mix(
+    in oklch,
+    var(--color-violet-base) 100%,
+    white 0%
+  );
+  --color-violet-60: color-mix(
+    in oklch,
+    var(--color-violet-base) 85%,
+    black 15%
+  );
+  --color-violet-70: color-mix(
+    in oklch,
+    var(--color-violet-base) 70%,
+    black 30%
+  );
+  --color-violet-80: color-mix(
+    in oklch,
+    var(--color-violet-base) 55%,
+    black 45%
+  );
+  --color-violet-90: color-mix(
+    in oklch,
+    var(--color-violet-base) 45%,
+    black 55%
+  );
+  --color-violet-100: color-mix(
+    in oklch,
+    var(--color-violet-base) 35%,
+    black 65%
+  );
+
+  --color-yellow-5: color-mix(
+    in oklch,
+    var(--color-yellow-base) 10%,
+    white 90%
+  );
+  --color-yellow-10: color-mix(
+    in oklch,
+    var(--color-yellow-base) 25%,
+    white 75%
+  );
+  --color-yellow-20: color-mix(
+    in oklch,
+    var(--color-yellow-base) 45%,
+    white 55%
+  );
+  --color-yellow-30: color-mix(
+    in oklch,
+    var(--color-yellow-base) 70%,
+    white 30%
+  );
+  --color-yellow-40: color-mix(
+    in oklch,
+    var(--color-yellow-base) 85%,
+    white 15%
+  );
+  --color-yellow-50: color-mix(
+    in oklch,
+    var(--color-yellow-base) 100%,
+    white 0%
+  );
+  --color-yellow-60: color-mix(
+    in oklch,
+    var(--color-yellow-base) 85%,
+    black 15%
+  );
+  --color-yellow-70: color-mix(
+    in oklch,
+    var(--color-yellow-base) 70%,
+    black 30%
+  );
+  --color-yellow-80: color-mix(
+    in oklch,
+    var(--color-yellow-base) 55%,
+    black 45%
+  );
+  --color-yellow-90: color-mix(
+    in oklch,
+    var(--color-yellow-base) 45%,
+    black 55%
+  );
+  --color-yellow-100: color-mix(
+    in oklch,
+    var(--color-yellow-base) 35%,
+    black 65%
+  );
+}

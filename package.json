@@ -1,0 +1,66 @@
+{
+  "name": "firetable-grid",
+  "version": "0.1.0",
+  "description": "Schema-driven filter, sort, group and export engine for TanStack Table \u2014 generic over your row type.",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/carsdatacom/firetable-grid.git"
+  },
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "files": [
+    "src",
+    "styles",
+    "examples",
+    "README.md"
+  ],
+  "exports": {
+    ".": "./src/index.ts",
+    "./server": "./src/server.ts",
+    "./styles/palette.css": "./styles/palette.css"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "lint": "biome check",
+    "format": "biome format --write"
+  },
+  "peerDependencies": {
+    "@tanstack/react-table": ">=9",
+    "exceljs": "^4.4.0",
+    "server-only": "^0.0.1",
+    "zod": "^4",
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "exceljs": {
+      "optional": true
+    },
+    "server-only": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.11",
+    "@tanstack/react-table": "9.2.4",
+    "@types/bun": "latest",
+    "@types/react": "^19",
+    "exceljs": "^4.4.0",
+    "server-only": "^0.0.1",
+    "typescript": "^6.0.3",
+    "zod": "^4.6.2"
+  },
+  "keywords": [
+    "tanstack-table",
+    "data-grid",
+    "table",
+    "filter",
+    "csv",
+    "xlsx"
+  ]
+}
