@@ -47,6 +47,18 @@ export function buildDerivedOptions<TData extends RowData>(
         ? col.getFilterValue(row)
         : (row as Record<string, unknown>)[col.accessorKey ?? col.id];
       if (raw == null) continue;
+      // A set-valued column's row value is the comma-joined token list that
+      // `compileSetValued` intersects against, so the options are its tokens.
+      // Offering the joined string whole would put "addPhotos,reducePrice" in
+      // the popover as one option, and selecting it would compile a condition
+      // matching every row holding *either* - never the pair the label claims.
+      if (col.type.setValued) {
+        for (const part of String(raw).split(",")) {
+          const token = part.trim();
+          if (token) seen.add(token);
+        }
+        continue;
+      }
       const str = String(raw).trim();
       if (!str) continue;
       seen.add(str);
