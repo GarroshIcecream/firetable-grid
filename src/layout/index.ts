@@ -16,3 +16,4 @@ export * from "./geometry";
 export * from "./model";
 export * from "./row-position";
 export * from "./use-column-resize-preview";
+export * from "./windowing";

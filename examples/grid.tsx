@@ -130,6 +130,13 @@ export function ControlledGrid({
         onSelectionChange={setSelectedRows}
         // One aggregation per column id. `numberFormatter` is required for a
         // footer to render - next-intl's `useFormatter()` satisfies it as-is.
+        // Opt-in. Every row AND every group header must be `rowHeight` tall;
+        // pass `virtualItems` from your own virtualizer for variable heights.
+        virtualize={{ rowHeight: 36 }}
+        onEndReached={() => {
+          /* fetch the next page */
+        }}
+        endReachedThreshold={8} // must stay below your page size
         footerAggregations={{ price: "avg" }}
         numberFormatter={{ number: (v, o) => v.toLocaleString("en-GB", o) }}
         reorderable

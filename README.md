@@ -141,6 +141,44 @@ Selection state deliberately stays **out of `GridView`**: it is ephemeral, like
 the collapsed-group set. Nobody wants a four-hundred-row selection restored
 from a link three weeks later.
 
+### Virtualization and paging
+
+Both **opt-in**:
+
+```tsx
+virtualize={{ rowHeight: 36, overscan: 8 }}   // built-in, no extra dependency
+onEndReached={fetchNextPage} endReachedThreshold={8}
+```
+
+Opt-in on purpose. Virtualization fails *quietly* rather than loudly —
+find-in-page stops finding unrendered rows, printing shows only the window, a
+screen reader sees a partial table unless you set `aria-rowcount` yourself, and
+a test asserting "all 40 rows render" starts failing. A fifty-row grid should
+pay none of that. It is also not auto-enabled above some row count: behaviour
+that changes discontinuously with data size gives you "works at 50 rows, breaks
+at 500", which is the worst kind of bug report.
+
+`virtualize` needs **every row and every group header to be `rowHeight` tall**.
+For variable heights, drive it from your own virtualizer instead — anything
+whose items carry `{ index, start, end }`, which is what
+`@tanstack/react-virtual`'s `getVirtualItems()` returns:
+
+```tsx
+virtualItems={rowVirtualizer.getVirtualItems()} totalSize={rowVirtualizer.getTotalSize()}
+```
+
+Nothing here imports that package at runtime, so it stays an optional peer —
+the same arrangement `useColumnResizePreview` uses.
+
+**`endReachedThreshold` must stay below your page size.** Above it, the page
+that lands is itself inside the threshold, so it fires again immediately and
+the fetches chain until the data runs out. The callback is re-armed by the
+loaded row count, so one edge cannot fire twice.
+
+The windowing maths is `fixedRowWindow` and `reachedEndOfRows`, both pure and
+on the `layout` subpath; `buildVirtualRenderPlan` handles the bring-your-own
+case. All three are usable without the component.
+
 ### Footer aggregates
 
 `footerAggregations` maps a column id to one of `avg`, `sum`, `min`, `max` or
@@ -358,6 +396,7 @@ It pulls in no UI kit.
 | `view-columns` | resolving a view's column layout against a schema: order, visibility, pins |
 | `selection` | range/anchor selection over the rendered row order, tri-state header, per-group toggles |
 | `footer-aggregate-value` | `resolveFooterValue` — server-computed aggregates beat the loaded rows |
+| `layout/windowing` | `fixedRowWindow` / `reachedEndOfRows` — dependency-free row windowing and the paging trigger |
 | `sorting-state` | multi-column sort state, capped and normalized, plus the only two functions that know TanStack's sort shape |
 | `date-grouping` | group dates by day/week/month/quarter/year, with injectable relative labels. A value's calendar day is always the **local** one — a string contributes its literal `YYYY-MM-DD` prefix, a `Date` its local day — so filtering, grouping and both export formats agree on which day a row falls on |
 | `threshold` | value→colour bands, zod-free so cell renderers can import the resolvers |
@@ -436,7 +475,7 @@ holds the placeholders; it is not a page you can open.
 
 ```bash
 bun install
-bun test          # 465 tests
+bun test          # 485 tests
 bun run typecheck
 bun run lint
 bun run bench     # performance suite (see Benchmarks above)

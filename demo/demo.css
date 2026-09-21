@@ -377,6 +377,17 @@ button:hover {
   font-weight: 400;
   color: var(--muted);
 }
+/* Virtualization needs every row and every group header the same height,
+   which is the constraint `virtualize={{ rowHeight }}` documents. Pinning both
+   is what lets the demo scroll 100,000 rows. */
+.demo-grid .ftg-row td,
+.demo-grid .ftg-group-row td {
+  height: 36px;
+  box-sizing: border-box;
+}
+.demo-grid .ftg-group-toggle {
+  padding: 0 12px;
+}
 .demo-grid .ftg-group-row td {
   background: var(--panel);
   border-bottom: 1px solid var(--border);

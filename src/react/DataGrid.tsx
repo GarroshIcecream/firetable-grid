@@ -1,7 +1,15 @@
 "use client";
 
 import type { RowData } from "@tanstack/react-table";
-import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { CategoryResolver } from "../column-category-layout";
 import type { SchemaColumn } from "../column-schema";
 import type { AggregationType } from "../column-vocabulary";
@@ -24,17 +32,22 @@ import {
   buildColumnLayout,
   buildFlatItems,
   buildRowPositionsByIndex,
+  buildVirtualRenderPlan,
   CELL_ALIGNMENT_CLASS,
   type ColumnLayoutEntry,
   cellPaddingClass,
   computeRowsAgg,
   EMPTY_GROUP_KEY,
+  type FlatItem,
+  fixedRowWindow,
   type GroupValueFn,
   groupSortDirection,
   PINNED_EDGE_BORDER,
   PINNED_INNER_EDGE_SHADOW,
   ROW_INDEX_TEXT_CLASS,
+  reachedEndOfRows,
   SELECTION_COLUMN_ID,
+  type VirtualRangeItem,
 } from "../layout";
 import {
   checkboxClick,
@@ -139,6 +152,48 @@ export interface DataGridProps<TData extends RowData> {
     aggregation: AggregationType,
   ) => ReactNode;
 
+  /**
+   * Renders only the rows in view.
+   *
+   * OPT-IN, and deliberately so. Virtualization fails quietly rather than
+   * loudly: find-in-page stops finding unrendered rows, printing shows only
+   * the window, a screen reader sees a partial table unless you set
+   * `aria-rowcount` yourself, and a test asserting "all 40 rows render" starts
+   * failing. A grid of fifty rows should pay none of that.
+   *
+   * It is also not auto-enabled above some row count: behaviour that changes
+   * discontinuously with data size gives you "works at 50 rows, breaks at
+   * 500", which is the worst kind of bug report.
+   *
+   * Every row must be `rowHeight` tall, INCLUDING group headers. For variable
+   * heights, drive it from your own virtualizer through `virtualItems`.
+   */
+  virtualize?: { rowHeight: number; overscan?: number };
+  /**
+   * Virtual items from your own virtualizer, for variable row heights.
+   * `@tanstack/react-virtual`'s `getVirtualItems()` satisfies this shape, and
+   * it stays an optional peer because nothing here imports it at runtime.
+   *
+   * Takes precedence over `virtualize` when both are given.
+   */
+  virtualItems?: readonly VirtualRangeItem[];
+  /** Total scrollable height, alongside `virtualItems`. */
+  totalSize?: number;
+
+  /**
+   * Fires when the rendered window comes within `endReachedThreshold` rows of
+   * the loaded edge. Needs virtualization to mean anything - without it every
+   * row is rendered, so the end is always in view.
+   */
+  onEndReached?: () => void;
+  /**
+   * How many rows ahead of the last rendered one still count as "near the
+   * end". Must stay BELOW your page size: above it, the page that lands is
+   * itself inside the threshold, so this fires again at once and the fetches
+   * chain until the data runs out.
+   */
+  endReachedThreshold?: number;
+
   wrapCells?: boolean;
   className?: string;
   emptyMessage?: ReactNode;
@@ -205,6 +260,11 @@ export function DataGrid<TData extends RowData>({
   numberFormatter,
   renderCheckbox = defaultCheckbox,
   renderFooterCell,
+  virtualize,
+  virtualItems,
+  totalSize,
+  onEndReached,
+  endReachedThreshold = 8,
   wrapCells = false,
   className,
   emptyMessage = "No rows match the current filter.",
@@ -352,6 +412,114 @@ export function DataGrid<TData extends RowData>({
     () => buildRowPositionsByIndex(flatItems),
     [flatItems],
   );
+
+  // Only subscribed when the built-in windowing is on, so an unvirtualized
+  // grid attaches no scroll listener at all.
+  const windowing = virtualize !== undefined && virtualItems === undefined;
+  const [scroll, setScroll] = useState({ top: 0, height: 0 });
+  useEffect(() => {
+    const frame = frameRef.current;
+    if (!windowing || !frame) return;
+    const read = () => {
+      const top = frame.scrollTop;
+      const height = frame.clientHeight;
+      // Returning the previous object bails React out, so an identical scroll
+      // event does not re-render the grid.
+      setScroll((prev) =>
+        prev.top === top && prev.height === height ? prev : { top, height },
+      );
+    };
+    read();
+    frame.addEventListener("scroll", read, { passive: true });
+    const observer = new ResizeObserver(read);
+    observer.observe(frame);
+    return () => {
+      frame.removeEventListener("scroll", read);
+      observer.disconnect();
+    };
+  }, [windowing]);
+
+  /**
+   * The rows to render, each with the spacer height that precedes it.
+   *
+   * Three paths: someone else's virtual items (per-slot spacers, since they
+   * can be non-contiguous), the built-in fixed-height window (one spacer
+   * before and one after), or everything.
+   */
+  const { rendered, spacerAfter, lastRenderedIndex } = useMemo(() => {
+    if (virtualItems) {
+      const plan = buildVirtualRenderPlan(virtualItems, totalSize ?? 0);
+      const out: Array<{ item: FlatItem; index: number; before: number }> = [];
+      for (const slot of plan.slots) {
+        const item = flatItems[slot.item.index];
+        if (item) {
+          out.push({ item, index: slot.item.index, before: slot.before });
+        }
+      }
+      return {
+        rendered: out,
+        spacerAfter: plan.after,
+        lastRenderedIndex:
+          out.length > 0 ? (out[out.length - 1]?.index ?? -1) : -1,
+      };
+    }
+    if (virtualize) {
+      const win = fixedRowWindow({
+        itemCount: flatItems.length,
+        rowHeight: virtualize.rowHeight,
+        scrollTop: scroll.top,
+        viewportHeight: scroll.height,
+        overscan: virtualize.overscan,
+      });
+      const out: Array<{ item: FlatItem; index: number; before: number }> = [];
+      for (let i = win.startIndex; i <= win.endIndex; i++) {
+        const item = flatItems[i];
+        if (item) {
+          out.push({
+            item,
+            index: i,
+            before: i === win.startIndex ? win.before : 0,
+          });
+        }
+      }
+      return {
+        rendered: out,
+        spacerAfter: win.after,
+        lastRenderedIndex: win.endIndex,
+      };
+    }
+    return {
+      rendered: flatItems.map((item, index) => ({ item, index, before: 0 })),
+      spacerAfter: 0,
+      lastRenderedIndex: flatItems.length - 1,
+    };
+  }, [virtualItems, totalSize, virtualize, flatItems, scroll]);
+
+  // Re-armed by the loaded row count, not by a timer: the page that lands is
+  // what changes it, so a threshold inside one page cannot fire twice for the
+  // same edge.
+  const endFiredAtRef = useRef(-1);
+  useEffect(() => {
+    if (!onEndReached) return;
+    if (
+      !reachedEndOfRows({
+        lastRenderedIndex,
+        loadedRowCount: flatItems.length,
+        threshold: endReachedThreshold,
+      })
+    ) {
+      return;
+    }
+    if (endFiredAtRef.current === sorted.length) return;
+    endFiredAtRef.current = sorted.length;
+    onEndReached();
+  }, [
+    onEndReached,
+    lastRenderedIndex,
+    flatItems.length,
+    sorted.length,
+    endReachedThreshold,
+  ]);
 
   // Ids in RENDERED order, which is what a shift-click range spans. Built from
   // the flat item list, so a collapsed group's rows are absent and a range
@@ -552,102 +720,130 @@ export function DataGrid<TData extends RowData>({
               </td>
             </tr>
           ) : null}
-          {flatItems.map((item) => {
-            if (item.type === "group-header") {
+          {rendered.map(({ item, index, before }) => {
+            // A spacer stands in for the rows above this one. Deliberately
+            // carries no `aria-hidden`: hiding a <tr> breaks the table's row
+            // structure for a screen reader, which is worse than an empty row.
+            // Announcing the real total is `aria-rowcount`, and the prop's
+            // comment says that is yours to set.
+            const spacer =
+              before > 0 ? (
+                <tr key={`s:${index}`} style={{ height: before }}>
+                  <td colSpan={layout.length} />
+                </tr>
+              ) : null;
+            const key =
+              item.type === "group-header" ? `h:${item.key}` : `i:${index}`;
+            const body = (() => {
+              if (item.type === "group-header") {
+                return (
+                  <tr key={`h:${item.key}`} className="ftg-group-row">
+                    <td colSpan={layout.length}>
+                      {selectable
+                        ? (() => {
+                            const ids = groupRowIds(item.key);
+                            const state = selectionStateOf(selected, ids);
+                            return (
+                              <span className="ftg-group-select">
+                                {renderCheckbox({
+                                  checked: state === "all",
+                                  indeterminate: state === "some",
+                                  label: `Select all rows in ${item.label}`,
+                                  onToggle: () => {
+                                    anchorRef.current = null;
+                                    commitSelection(toggleIds(selected, ids));
+                                  },
+                                })}
+                              </span>
+                            );
+                          })()
+                        : null}
+                      <button
+                        type="button"
+                        className="ftg-group-toggle"
+                        aria-expanded={!collapsed.has(item.key)}
+                        onClick={() => toggleGroup(item.key)}
+                      >
+                        <span className="ftg-caret" aria-hidden="true">
+                          {collapsed.has(item.key) ? "▸" : "▾"}
+                        </span>
+                        <span>
+                          {item.label === EMPTY_GROUP_KEY ? "—" : item.label}
+                        </span>
+                        <span className="ftg-group-count">{item.count}</span>
+                      </button>
+                    </td>
+                  </tr>
+                );
+              }
+              const row = sorted[item.rowIndex];
+              const rowId = getRowId ? getRowId(row) : undefined;
+              const isSelected = rowId !== undefined && selected.has(rowId);
               return (
-                <tr key={`h:${item.key}`} className="ftg-group-row">
-                  <td colSpan={layout.length}>
-                    {selectable
-                      ? (() => {
-                          const ids = groupRowIds(item.key);
-                          const state = selectionStateOf(selected, ids);
-                          return (
-                            <span className="ftg-group-select">
-                              {renderCheckbox({
-                                checked: state === "all",
-                                indeterminate: state === "some",
-                                label: `Select all rows in ${item.label}`,
-                                onToggle: () => {
-                                  anchorRef.current = null;
-                                  commitSelection(toggleIds(selected, ids));
-                                },
-                              })}
-                            </span>
-                          );
-                        })()
-                      : null}
-                    <button
-                      type="button"
-                      className="ftg-group-toggle"
-                      aria-expanded={!collapsed.has(item.key)}
-                      onClick={() => toggleGroup(item.key)}
-                    >
-                      <span className="ftg-caret" aria-hidden="true">
-                        {collapsed.has(item.key) ? "▸" : "▾"}
-                      </span>
-                      <span>
-                        {item.label === EMPTY_GROUP_KEY ? "—" : item.label}
-                      </span>
-                      <span className="ftg-group-count">{item.count}</span>
-                    </button>
-                  </td>
+                <tr
+                  key={rowId ?? `r:${item.rowIndex}`}
+                  className={cx("ftg-row", isSelected && "ftg-row-selected")}
+                  aria-selected={selectable ? isSelected : undefined}
+                >
+                  {layout.map((entry, columnIndex) => {
+                    const column = entry.item;
+                    const spec = cellSpecs[columnIndex];
+                    return (
+                      <td
+                        key={entry.id}
+                        data-column-id={entry.id}
+                        className={spec.staticClass}
+                        style={spec.style}
+                      >
+                        {entry.id === SELECTION_COLUMN_ID &&
+                        rowId !== undefined ? (
+                          // Modifiers are read here rather than on the row, so a
+                          // range drag cannot collide with whatever the host puts
+                          // inside a cell.
+                          <span
+                            onClickCapture={(e) =>
+                              onRowToggle(
+                                rowId,
+                                checkboxClick({ shiftKey: e.shiftKey }),
+                              )
+                            }
+                          >
+                            {renderCheckbox({
+                              checked: isSelected,
+                              indeterminate: false,
+                              label: `Select row ${positions.get(item.rowIndex) ?? ""}`,
+                              onToggle: () => {
+                                /* handled by onClickCapture above */
+                              },
+                            })}
+                          </span>
+                        ) : column.type.dataType === "index" ? (
+                          <span className={ROW_INDEX_TEXT_CLASS}>
+                            {positions.get(item.rowIndex) ?? ""}
+                          </span>
+                        ) : (
+                          renderCell(column, row)
+                        )}
+                      </td>
+                    );
+                  })}
                 </tr>
               );
-            }
-            const row = sorted[item.rowIndex];
-            const rowId = getRowId ? getRowId(row) : undefined;
-            const isSelected = rowId !== undefined && selected.has(rowId);
-            return (
-              <tr
-                key={rowId ?? `r:${item.rowIndex}`}
-                className={cx("ftg-row", isSelected && "ftg-row-selected")}
-                aria-selected={selectable ? isSelected : undefined}
-              >
-                {layout.map((entry, columnIndex) => {
-                  const column = entry.item;
-                  const spec = cellSpecs[columnIndex];
-                  return (
-                    <td
-                      key={entry.id}
-                      data-column-id={entry.id}
-                      className={spec.staticClass}
-                      style={spec.style}
-                    >
-                      {entry.id === SELECTION_COLUMN_ID &&
-                      rowId !== undefined ? (
-                        // Modifiers are read here rather than on the row, so a
-                        // range drag cannot collide with whatever the host puts
-                        // inside a cell.
-                        <span
-                          onClickCapture={(e) =>
-                            onRowToggle(
-                              rowId,
-                              checkboxClick({ shiftKey: e.shiftKey }),
-                            )
-                          }
-                        >
-                          {renderCheckbox({
-                            checked: isSelected,
-                            indeterminate: false,
-                            label: `Select row ${positions.get(item.rowIndex) ?? ""}`,
-                            onToggle: () => {
-                              /* handled by onClickCapture above */
-                            },
-                          })}
-                        </span>
-                      ) : column.type.dataType === "index" ? (
-                        <span className={ROW_INDEX_TEXT_CLASS}>
-                          {positions.get(item.rowIndex) ?? ""}
-                        </span>
-                      ) : (
-                        renderCell(column, row)
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
+            })();
+            return spacer ? (
+              <Fragment key={key}>
+                {spacer}
+                {body}
+              </Fragment>
+            ) : (
+              body
             );
           })}
+          {spacerAfter > 0 ? (
+            <tr style={{ height: spacerAfter }}>
+              <td colSpan={layout.length} />
+            </tr>
+          ) : null}
         </tbody>
         {footerAggregations && numberFormatter ? (
           <tfoot>

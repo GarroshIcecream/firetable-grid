@@ -281,9 +281,6 @@ export function pendingRowRunway({
  * overflows the call stack: V8 throws `RangeError: Maximum call stack size
  * exceeded` somewhere past ~125k arguments, so a min/max footer used to crash
  * the grid on exactly the datasets big enough to want one.
- */
-/**
- * Aggregates one column over the loaded rows.
  *
  * `read` exists because `colId` is a COLUMN id, which is not always the key
  * the value lives under - a column declaring `accessorKey` or

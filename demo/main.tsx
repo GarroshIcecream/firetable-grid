@@ -31,7 +31,8 @@ import { buildColumnLayout, buildFlatItems } from "../src/layout";
 import { DataGrid } from "../src/react";
 import { buildColumns, buildRows, type Item } from "./data";
 
-const rows = buildRows();
+const ROW_COUNTS = [28, 1_000, 20_000, 100_000] as const;
+const ROW_HEIGHT = 36;
 const columns = buildColumns();
 const byId = new Map(columns.map((c) => [c.id, c]));
 const nf = (o?: Intl.NumberFormatOptions) => new Intl.NumberFormat("en-GB", o);
@@ -158,6 +159,11 @@ function App() {
   const [selectedRows, setSelectedRows] = useState<Set<string>>(
     () => new Set(),
   );
+  const [rowCount, setRowCount] = useState<number>(28);
+  // Virtualization is opt-in, so the demo turns it on explicitly. Every row
+  // must be the same height as every group header - `demo.css` pins both to
+  // ROW_HEIGHT, which is the constraint the prop documents.
+  const rows = useMemo(() => buildRows(rowCount), [rowCount]);
   const [reorderable, setReorderable] = useState(true);
   const [byCategory, setByCategory] = useState(false);
 
@@ -176,7 +182,7 @@ function App() {
   const patchColumns = (patch: Record<string, unknown>) =>
     setView((v) => ({ ...v, columns: { ...v.columns, ...patch } }));
 
-  const filtered = useMemo(() => applyView(rows, view, columns), [view]);
+  const filtered = useMemo(() => applyView(rows, view, columns), [rows, view]);
   const ordered = useMemo(
     () =>
       order
@@ -266,6 +272,23 @@ function App() {
                 setView((v) => ({ ...v, search: e.target.value }))
               }
             />
+          </label>
+
+          <label className="field">
+            <span className="field-label">Rows</span>
+            <select
+              value={rowCount}
+              onChange={(e) => {
+                setRowCount(Number(e.target.value));
+                setSelectedRows(new Set());
+              }}
+            >
+              {ROW_COUNTS.map((n) => (
+                <option key={n} value={n}>
+                  {n.toLocaleString("en-GB")}
+                </option>
+              ))}
+            </select>
           </label>
 
           <label className="field">
@@ -457,6 +480,7 @@ function App() {
           getRowId={(row) => row.sku}
           view={view}
           onViewChange={setView}
+          virtualize={{ rowHeight: ROW_HEIGHT }}
           enableSelection
           selectedRowIds={selectedRows}
           onSelectionChange={setSelectedRows}
