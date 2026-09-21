@@ -7,7 +7,7 @@
 // in this suite is going to hit a memory ceiling, it is here, which is why the
 // row counts below are deliberately smaller than the filter file's.
 
-import { barplot, bench, do_not_optimize, run, summary } from "mitata";
+import { barplot, bench, do_not_optimize, group, run, summary } from "mitata";
 import {
   buildCsvString,
   escapeCsvCell,
@@ -36,39 +36,76 @@ console.log(
 
 const numberColumn = columns.find((c) => c.id === FIELD.number);
 const dateColumn = columns.find((c) => c.id === FIELD.date);
-if (!numberColumn || !dateColumn) throw new Error("bench columns missing");
+const enumColumn = columns.find((c) => c.id === FIELD.enum);
+if (!numberColumn || !dateColumn || !enumColumn) {
+  throw new Error("bench columns missing");
+}
 const sampleRow = slice[0];
 
-barplot(() => {
-  summary(() => {
-    bench("buildCsvString, all columns", () => {
-      do_not_optimize(buildCsvString(slice, columns).length);
-    }).baseline(true);
+// Benchmarks are grouped BY SCALE, and only compared within a group. A
+// per-cell function and a whole-dataset one in the same `summary()` produce
+// ratios like "4,176,331x slower", which is not a finding - it is the two
+// measurements being four orders of magnitude apart, and it flattens the
+// barplot into a single bar plus noise.
 
-    bench("selectExportColumns", () => {
-      do_not_optimize(
-        selectExportColumns(columns, [], visibility, slice).length,
-      );
+group("whole dataset", () => {
+  barplot(() => {
+    summary(() => {
+      // Reading every cell without assembling anything, so the difference
+      // against buildCsvString is the escape-and-join half of the work.
+      bench("resolve every cell, no string assembly", () => {
+        let n = 0;
+        for (const row of slice) {
+          for (const column of columns)
+            n += resolveCellValue(row, column).length;
+        }
+        do_not_optimize(n);
+      }).baseline(true);
+
+      bench("buildCsvString, all columns", () => {
+        do_not_optimize(buildCsvString(slice, columns).length);
+      });
     });
+  });
+});
 
-    bench("resolveCellValue × rows (numeric column)", () => {
-      let n = 0;
-      for (const row of slice) {
-        n += resolveCellValue(row, numberColumn).length;
-      }
-      do_not_optimize(n);
+group("one column × every row", () => {
+  barplot(() => {
+    summary(() => {
+      bench("resolveCellValue, numeric column", () => {
+        let n = 0;
+        for (const row of slice)
+          n += resolveCellValue(row, numberColumn).length;
+        do_not_optimize(n);
+      }).baseline(true);
+
+      bench("resolveCellValue, date column", () => {
+        let n = 0;
+        for (const row of slice) n += resolveCellValue(row, dateColumn).length;
+        do_not_optimize(n);
+      });
+
+      bench("resolveCellValue, enum column", () => {
+        let n = 0;
+        for (const row of slice) n += resolveCellValue(row, enumColumn).length;
+        do_not_optimize(n);
+      });
     });
+  });
+});
 
-    bench("resolveCellValue × rows (date column)", () => {
-      let n = 0;
-      for (const row of slice) {
-        n += resolveCellValue(row, dateColumn).length;
-      }
-      do_not_optimize(n);
-    });
+group("per call, not per row", () => {
+  barplot(() => {
+    summary(() => {
+      bench("escapeCsvCell, one cell", () => {
+        do_not_optimize(escapeCsvCell(String(sampleRow[FIELD.text])));
+      }).baseline(true);
 
-    bench("escapeCsvCell, one cell", () => {
-      do_not_optimize(escapeCsvCell(String(sampleRow[FIELD.text])));
+      bench("selectExportColumns", () => {
+        do_not_optimize(
+          selectExportColumns(columns, [], visibility, slice).length,
+        );
+      });
     });
   });
 });

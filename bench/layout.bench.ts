@@ -78,9 +78,23 @@ group("sort", () => {
 group("group", () => {
   barplot(() => {
     summary(() => {
-      bench("buildFlatItems, ungrouped", () => {
-        do_not_optimize(buildFlatItems(wrapped, "", "asc").length);
+      // The baseline READS A PROPERTY off every row, which ungrouped
+      // `buildFlatItems` never does - it returns `{type, rowIndex}` without
+      // touching `original` at all. Against that, every grouped case looked
+      // 30-47x slower, but most of the gap was the wide-row cache miss the
+      // baseline skipped, not grouping. This baseline pays the same access, so
+      // the comparison measures grouping.
+      bench("baseline: read group field, no grouping", () => {
+        let n = 0;
+        for (const item of wrapped) {
+          if ((item.original as Record<string, unknown>)[FIELD.enum]) n++;
+        }
+        do_not_optimize(n);
       }).baseline(true);
+
+      bench("buildFlatItems, ungrouped (touches no row)", () => {
+        do_not_optimize(buildFlatItems(wrapped, "", "asc").length);
+      });
 
       bench("buildFlatItems, grouped by enum", () => {
         do_not_optimize(buildFlatItems(wrapped, FIELD.enum, "asc").length);
