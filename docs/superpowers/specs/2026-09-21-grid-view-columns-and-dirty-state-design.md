@@ -134,8 +134,15 @@ returns `{ locked, pinned }`, and both halves are needed:
 
 - `pinned` drives stickiness (what `buildColumnLayout` receives).
 - `locked` drives the reorder exclusion (`participating`), which currently uses
-  `isPinned`. They differ once user pins exist, which is the reason the function
-  returns two lists.
+  `isPinned`.
+
+Correction to an earlier claim: with `compact: false` these two lists have
+identical contents, so wiring both changes no behaviour today. They only
+diverge under `compact: true`, where `pinned` narrows to `compactFrozenColumns`
+while `locked` stays complete — a column that cannot be dragged but is no longer
+sticky. Using the semantically correct list at each call site is still worth
+doing now, so the compact breakpoint is a later config change rather than a
+hunt through the component.
 
 Its `compact` parameter is passed `false`; a mobile breakpoint that freezes
 fewer columns is out of scope.
