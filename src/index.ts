@@ -33,6 +33,7 @@ export * from "./sort-rows";
 export * from "./sorting-state";
 export * from "./tanstack";
 export * from "./threshold";
+export * from "./view-columns";
 export * from "./view-diff";
 export * from "./xlsx-client";
 export * from "./xlsx-sheet";
