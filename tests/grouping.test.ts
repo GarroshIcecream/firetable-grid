@@ -77,13 +77,13 @@ describe("buildFlatItems — custom (date-like) resolver", () => {
 // buildFlatItems.
 describe("groupSortDirection — group order follows the grouped column's sort", () => {
   test("grouped column sorted desc flips the groups to desc", () => {
-    expect(groupSortDirection([{ id: "make", desc: true }], "make")).toBe(
+    expect(groupSortDirection([{ field: "make", dir: "desc" }], "make")).toBe(
       "desc",
     );
   });
 
   test("grouped column sorted asc keeps the groups asc", () => {
-    expect(groupSortDirection([{ id: "make", desc: false }], "make")).toBe(
+    expect(groupSortDirection([{ field: "make", dir: "asc" }], "make")).toBe(
       "asc",
     );
   });
@@ -91,7 +91,7 @@ describe("groupSortDirection — group order follows the grouped column's sort",
   test("sorting a non-grouped column leaves groups in default asc order", () => {
     // The user sorts price while grouped by make: groups stay A→Z and only the
     // rows inside each group reorder — so the group direction must be asc.
-    expect(groupSortDirection([{ id: "price", desc: true }], "make")).toBe(
+    expect(groupSortDirection([{ field: "price", dir: "desc" }], "make")).toBe(
       "asc",
     );
   });

@@ -8,28 +8,32 @@ import { StrictMode, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   AGG_SYMBOLS,
-  applyAST,
+  all,
+  applyView,
   buildCsvString,
   buildExportFilename,
   buildVisibility,
   type CategoryResolver,
-  countFilters,
-  type FilterAST,
+  countConditions,
+  emptyGridView,
   type FilterCondition,
+  type FilterNode,
   type FilterOp,
   formatFooterAggregate,
+  type GridView,
   isColumnVisible,
   resolveThresholdColor,
   type SchemaColumn,
   selectExportColumns,
   thresholdClasses,
+  where,
 } from "../src";
 import {
   buildColumnLayout,
   buildFlatItems,
   computeRowsAgg,
 } from "../src/layout";
-import { DataGrid, type SortEntry } from "../src/react";
+import { DataGrid } from "../src/react";
 import { buildColumns, buildRows, type Item } from "./data";
 
 const rows = buildRows();
@@ -126,12 +130,35 @@ function Cell({ column, row }: { column: SchemaColumn<Item>; row: Item }) {
   }
 }
 
-const EMPTY_AST: FilterAST = { search: "", and: [], orGroups: [] };
+// This demo's builder only ever produces a flat `all(...)`, so it can treat
+// the filter as a list of conditions. A builder offering nested groups would
+// walk the tree instead - the shape allows both.
+function conditionsOf(filter: FilterNode | null): FilterCondition[] {
+  if (filter === null) return [];
+  if (filter.kind === "where") return [filter];
+  return filter.of.filter((n): n is FilterCondition => n.kind === "where");
+}
+
+function withCondition(
+  filter: FilterNode | null,
+  condition: FilterCondition,
+): FilterNode {
+  return all(...conditionsOf(filter), condition);
+}
+
+function withoutConditionAt(
+  filter: FilterNode | null,
+  index: number,
+): FilterNode | null {
+  const kept = conditionsOf(filter).filter((_, i) => i !== index);
+  return kept.length === 0 ? null : all(...kept);
+}
 
 function App() {
-  const [ast, setAst] = useState<FilterAST>(EMPTY_AST);
-  const [sorting, setSorting] = useState<SortEntry[]>([]);
-  const [groupBy, setGroupBy] = useState("");
+  // Search, filter, sort and grouping in one object - the same one the panel
+  // on the right prints, and the same one a "save this view" button would
+  // store verbatim.
+  const [view, setView] = useState<GridView>(emptyGridView);
   const [wrapCells, setWrapCells] = useState(false);
   const [reorderable, setReorderable] = useState(true);
   const [byCategory, setByCategory] = useState(false);
@@ -150,7 +177,7 @@ function App() {
   const [op, setOp] = useState<FilterOp>("is");
   const [val, setVal] = useState("");
 
-  const filtered = useMemo(() => applyAST(rows, ast, columns), [ast]);
+  const filtered = useMemo(() => applyView(rows, view, columns), [view]);
   const ordered = useMemo(
     () =>
       order
@@ -170,21 +197,25 @@ function App() {
       ),
     [ordered, sizes],
   );
+  const groupField = view.group?.field ?? "";
+  const conditions = conditionsOf(view.filter);
   const flatItems = useMemo(
     () =>
       buildFlatItems(
         filtered.map((original) => ({ original })),
-        groupBy,
+        groupField,
         "asc",
       ),
-    [filtered, groupBy],
+    [filtered, groupField],
   );
 
   const fieldColumn = byId.get(field);
   const addFilter = () => {
     if (!field || !op) return;
-    const cond: FilterCondition = { field, op, val };
-    setAst((a) => ({ ...a, and: [...a.and, cond] }));
+    setView((v) => ({
+      ...v,
+      filter: withCondition(v.filter, where(field, op, val)),
+    }));
     setVal("");
   };
 
@@ -200,7 +231,7 @@ function App() {
     a.href = URL.createObjectURL(blob);
     a.download = buildExportFilename({
       prefix: "inventory",
-      scope: groupBy || null,
+      scope: groupField || null,
       ext: "csv",
     });
     a.click();
@@ -208,9 +239,7 @@ function App() {
   };
 
   const reset = () => {
-    setAst(EMPTY_AST);
-    setSorting([]);
-    setGroupBy("");
+    setView(emptyGridView());
     setOrder(columns.map((c) => c.id));
     setSizes({});
     setVisibility(buildVisibility(columns));
@@ -225,9 +254,9 @@ function App() {
             <input
               type="search"
               placeholder="Search Item / SKU…"
-              value={ast.search}
+              value={view.search}
               onChange={(e) =>
-                setAst((a) => ({ ...a, search: e.target.value }))
+                setView((v) => ({ ...v, search: e.target.value }))
               }
             />
           </label>
@@ -235,8 +264,13 @@ function App() {
           <label className="field">
             <span className="field-label">Group by</span>
             <select
-              value={groupBy}
-              onChange={(e) => setGroupBy(e.target.value)}
+              value={groupField}
+              onChange={(e) =>
+                setView((v) => ({
+                  ...v,
+                  group: e.target.value ? { field: e.target.value } : null,
+                }))
+              }
             >
               <option value="">No grouping</option>
               {columns
@@ -379,25 +413,25 @@ function App() {
         </p>
 
         <div className="chips">
-          {ast.and.length === 0 && !ast.search ? (
+          {conditions.length === 0 && !view.search ? (
             <span className="chips-empty">No filters — showing every row.</span>
           ) : null}
-          {ast.search ? (
-            <span className="chip">search: “{ast.search}”</span>
+          {view.search ? (
+            <span className="chip">search: “{view.search}”</span>
           ) : null}
-          {ast.and.map((c, i) => (
+          {conditions.map((c, i) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: two identical conditions are legal, so position is part of a chip's identity.
-            <div className="chip" key={`${c.field}-${c.op}-${c.val}-${i}`}>
+            <div className="chip" key={`${c.field}-${c.op}-${c.value}-${i}`}>
               <span>
-                {byId.get(c.field)?.label ?? c.field} {c.op} {c.val}
+                {byId.get(c.field)?.label ?? c.field} {c.op} {c.value}
               </span>
               <button
                 type="button"
                 className="chip-x"
                 onClick={() =>
-                  setAst((a) => ({
-                    ...a,
-                    and: a.and.filter((_, j) => j !== i),
+                  setView((v) => ({
+                    ...v,
+                    filter: withoutConditionAt(v.filter, i),
                   }))
                 }
               >
@@ -412,11 +446,9 @@ function App() {
           rows={rows}
           columns={columns}
           getRowId={(row) => row.sku}
-          filter={ast}
+          view={view}
+          onViewChange={setView}
           columnVisibility={visibility}
-          sorting={sorting}
-          onSortingChange={setSorting}
-          groupBy={groupBy}
           columnOrder={order}
           onColumnOrderChange={setOrder}
           columnSizes={sizes}
@@ -461,7 +493,7 @@ function App() {
             <div className="stat-key">after filter</div>
           </div>
           <div className="stat">
-            <div className="stat-value">{countFilters(ast)}</div>
+            <div className="stat-value">{countConditions(view.filter)}</div>
             <div className="stat-key">filters</div>
           </div>
           <div className="stat">
@@ -486,14 +518,12 @@ function App() {
             : JSON.stringify(sizes, null, 2)}
         </pre>
 
-        <h3>FilterAST</h3>
+        <h3>GridView</h3>
         <p className="note">
-          Serializable by design — this is what a saved view stores.
+          Search, filter, sort and grouping in one serializable object — this is
+          exactly what a saved view stores.
         </p>
-        <pre>{JSON.stringify(ast, null, 2)}</pre>
-
-        <h3>Sorting</h3>
-        <pre>{JSON.stringify(sorting, null, 2)}</pre>
+        <pre>{JSON.stringify(view, null, 2)}</pre>
 
         <h3>Column layout</h3>
         <p className="note">

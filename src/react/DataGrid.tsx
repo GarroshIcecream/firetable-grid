@@ -8,8 +8,8 @@ import {
   isColumnVisible,
   type SchemaColumn,
 } from "../column-schema";
-import type { FilterAST } from "../filter-engine";
-import { applyAST, isFilterASTEmpty } from "../filter-engine";
+import { applyView } from "../filter-engine";
+import { emptyGridView, type GridView } from "../grid-view";
 import {
   buildCellSpecs,
   buildColumnLayout,
@@ -26,14 +26,9 @@ import {
   ROW_INDEX_TEXT_CLASS,
 } from "../layout";
 import { sortRowsForExport } from "../sort-rows";
-import { getColumnSortState, toggleColumnSorting } from "../sorting-state";
+import { getColumnSort, sortRulesEqual, toggleSort } from "../sorting-state";
 import { useColumnReorder } from "./use-column-reorder";
 import { MAX_COLUMN_WIDTH, useColumnResize } from "./use-column-resize";
-
-export interface SortEntry {
-  id: string;
-  desc: boolean;
-}
 
 export interface DataGridProps<TData extends RowData> {
   rows: readonly TData[];
@@ -41,21 +36,28 @@ export interface DataGridProps<TData extends RowData> {
   /** Renders one cell. The grid owns layout and colour; the DOM is yours. */
   renderCell: (column: SchemaColumn<TData>, row: TData) => ReactNode;
 
-  /** Filter state. Omit for an unfiltered grid. */
-  filter?: FilterAST;
+  /**
+   * Search, filter, sort and grouping in one object. Leave it off and the grid
+   * keeps its own, so the minimal call still sorts on a header click; pass it
+   * and the grid is fully controlled.
+   */
+  view?: GridView;
+  /** Fires with the whole next view whenever the grid changes part of it —
+   *  today that means a header click editing `sort`. */
+  onViewChange?: (view: GridView) => void;
 
   /** Stable row identity. Without it rows key on their position, so a filter,
    *  a sort or an arriving page makes React reuse one row's DOM for another -
    *  which bleeds cell state (an open popover, a focused input) across rows. */
   getRowId?: (row: TData) => string;
 
-  sorting?: readonly SortEntry[];
-  onSortingChange?: (sorting: SortEntry[]) => void;
-  /** Sort by more than one column at once, up to `MAX_TABLE_SORT_COLUMNS`.
+  /** Sort by more than one column at once, up to `MAX_SORT_COLUMNS`.
    *  Shift-click a header to add a column to the sort. On by default. */
   multiSort?: boolean;
 
-  groupBy?: string;
+  /** Resolves a row's group key and label. A function, so it cannot live in
+   *  the serializable `view` — `view.group` names the column, this says how to
+   *  bucket it. */
   getGroupValue?: GroupValueFn;
   collapsedGroups?: ReadonlySet<string>;
   onCollapsedGroupsChange?: (collapsed: Set<string>) => void;
@@ -108,12 +110,10 @@ export function DataGrid<TData extends RowData>({
   rows,
   columns,
   renderCell,
-  filter,
+  view,
+  onViewChange,
   getRowId,
-  sorting,
-  onSortingChange,
   multiSort = true,
-  groupBy = "",
   getGroupValue,
   collapsedGroups,
   onCollapsedGroupsChange,
@@ -137,14 +137,15 @@ export function DataGrid<TData extends RowData>({
     columns.map((c) => c.id),
   );
   const [ownSizes, setOwnSizes] = useState<Record<string, number>>({});
-  const [ownSorting, setOwnSorting] = useState<SortEntry[]>([]);
+  const [ownView, setOwnView] = useState<GridView>(emptyGridView);
   const [ownCollapsed, setOwnCollapsed] = useState<Set<string>>(
     () => new Set(),
   );
 
   const order = columnOrder ?? ownOrder;
   const sizes = columnSizes ?? ownSizes;
-  const activeSorting = sorting ?? ownSorting;
+  const activeView = view ?? ownView;
+  const groupField = activeView.group?.field ?? "";
   const collapsed = collapsedGroups ?? ownCollapsed;
   // Derived, not owned: nothing inside the grid writes visibility, so this has
   // to track `columns` rather than freeze at mount - otherwise a column added
@@ -172,12 +173,12 @@ export function DataGrid<TData extends RowData>({
     [sizes, columnSizes, onColumnSizesChange],
   );
 
-  const setSorting = useCallback(
-    (next: SortEntry[]) => {
-      if (onSortingChange) onSortingChange(next);
-      if (!sorting) setOwnSorting(next);
+  const setView = useCallback(
+    (next: GridView) => {
+      if (onViewChange) onViewChange(next);
+      if (!view) setOwnView(next);
     },
-    [sorting, onSortingChange],
+    [view, onViewChange],
   );
 
   const toggleGroup = useCallback(
@@ -238,24 +239,27 @@ export function DataGrid<TData extends RowData>({
     [layout, wrapCells],
   );
 
+  // Depend on the two fields that narrow rows, not on the whole view: a header
+  // click replaces the view object, and re-running the filter over every row
+  // because `sort` changed is a full scan the sort was never going to use.
+  // `applyView` short-circuits an unfiltered view itself, so there is no
+  // emptiness check to keep in sync here.
+  const { search, filter, sort } = activeView;
   const visible = useMemo(
-    () =>
-      !filter || isFilterASTEmpty(filter)
-        ? rows.slice()
-        : applyAST(rows, filter, columns),
-    [rows, filter, columns],
+    () => applyView(rows, { search, filter, sort: [], group: null }, columns),
+    [rows, search, filter, columns],
   );
 
   const sorted = useMemo(
-    () => sortRowsForExport(visible, activeSorting as never, columns),
-    [visible, activeSorting, columns],
+    () => sortRowsForExport(visible, sort, columns),
+    [visible, sort, columns],
   );
 
   const flatItems = useMemo(() => {
     const wrapped = sorted.map((original) => ({ original }));
-    const dir = groupBy ? groupSortDirection(activeSorting, groupBy) : "asc";
-    return buildFlatItems(wrapped, groupBy, dir, collapsed, getGroupValue);
-  }, [sorted, groupBy, activeSorting, collapsed, getGroupValue]);
+    const dir = groupField ? groupSortDirection(sort, groupField) : "asc";
+    return buildFlatItems(wrapped, groupField, dir, collapsed, getGroupValue);
+  }, [sorted, groupField, sort, collapsed, getGroupValue]);
 
   const positions = useMemo(
     () => buildRowPositionsByIndex(flatItems),
@@ -294,22 +298,25 @@ export function DataGrid<TData extends RowData>({
     enabled: resizable,
   });
 
-  const sortableIds = useMemo(
+  const sortableFields = useMemo(
     () => new Set(columns.filter((c) => c.sortable).map((c) => c.id)),
     [columns],
   );
 
-  // Delegates to the engine's own `toggleColumnSorting` rather than repeating
-  // the asc → desc → off cycle here: that helper also caps the sort at
-  // MAX_TABLE_SORT_COLUMNS and drops ids that are no longer sortable, which a
+  // Delegates to the engine's own `toggleSort` rather than repeating the
+  // asc → desc → off cycle here: that helper also caps the sort at
+  // MAX_SORT_COLUMNS and drops fields that are no longer sortable, which a
   // hand-rolled single-column toggle silently could not do.
   const onHeaderClick = (column: SchemaColumn<TData>, additive: boolean) => {
-    setSorting(
-      toggleColumnSorting([...activeSorting], column.id, {
-        multi: multiSort && additive,
-        sortableIds,
-      }),
-    );
+    const next = toggleSort(sort, column.id, {
+      multi: multiSort && additive,
+      sortableFields,
+    });
+    // A click the sort refuses - an unsortable column, or a new one at the cap
+    // - must not publish a new view: every consumer would see a change, and
+    // the rows would re-sort, for a state that did not move.
+    if (sortRulesEqual(next, sort)) return;
+    setView({ ...activeView, sort: next });
   };
 
   return (
@@ -319,14 +326,14 @@ export function DataGrid<TData extends RowData>({
           <tr>
             {layout.map((entry, columnIndex) => {
               const column = entry.item;
-              const sort = getColumnSortState([...activeSorting], column.id);
+              const sort = getColumnSort(activeView.sort, column.id);
               return (
                 <th
                   key={entry.id}
                   data-column-id={entry.id}
                   aria-sort={
                     sort
-                      ? sort.direction === "desc"
+                      ? sort.dir === "desc"
                         ? "descending"
                         : "ascending"
                       : undefined
@@ -350,10 +357,10 @@ export function DataGrid<TData extends RowData>({
                   <span className="ftg-th-label">{column.label}</span>
                   {sort ? (
                     <span className="ftg-sort-mark" aria-hidden="true">
-                      {sort.direction === "desc" ? " ↓" : " ↑"}
+                      {sort.dir === "desc" ? " ↓" : " ↑"}
                       {/* Which column sorts first. Without it a multi-column
                           sort is two identical arrows and no way to tell. */}
-                      {activeSorting.length > 1 ? (
+                      {activeView.sort.length > 1 ? (
                         <span className="ftg-sort-index">{sort.index + 1}</span>
                       ) : null}
                     </span>

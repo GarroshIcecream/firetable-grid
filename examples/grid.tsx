@@ -6,12 +6,13 @@ import { useState } from "react";
 import {
   buildVisibility,
   col,
-  type FilterAST,
+  emptyGridView,
+  type GridView,
   isColumnVisible,
   type SchemaColumn,
   selectExportColumns,
 } from "../src";
-import { DataGrid, type SortEntry } from "../src/react";
+import { DataGrid } from "../src/react";
 import { ColumnTypes } from "./column-types";
 
 interface Row {
@@ -63,15 +64,17 @@ export function MinimalGrid({ rows }: { rows: readonly Row[] }) {
   );
 }
 
-/** Everything controlled, which is what you want once a view is persisted. */
+/** Everything controlled, which is what you want once a view is persisted.
+ *  Search, filter, sort and grouping arrive as one object and leave as one,
+ *  so persisting the view is `JSON.stringify(view)` and nothing else. */
 export function ControlledGrid({
   rows,
-  filter,
+  initialView = { ...emptyGridView(), group: { field: "category" } },
 }: {
   rows: readonly Row[];
-  filter: FilterAST;
+  initialView?: GridView;
 }) {
-  const [sorting, setSorting] = useState<SortEntry[]>([]);
+  const [view, setView] = useState<GridView>(initialView);
   const [order, setOrder] = useState<string[]>(() => columns.map((c) => c.id));
   const [sizes, setSizes] = useState<Record<string, number>>({});
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
@@ -94,10 +97,8 @@ export function ControlledGrid({
         columns={columns}
         getRowId={(row) => row.id}
         renderCell={(column, row) => <Cell column={column} row={row} />}
-        filter={filter}
-        sorting={sorting}
-        onSortingChange={setSorting}
-        groupBy="category"
+        view={view}
+        onViewChange={setView}
         collapsedGroups={collapsed}
         onCollapsedGroupsChange={setCollapsed}
         columnOrder={order}

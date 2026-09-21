@@ -26,6 +26,7 @@ export * from "./export-cell";
 export * from "./filter-engine";
 export * from "./footer-aggregate-query";
 export * from "./format-footer-aggregate";
+export * from "./grid-view";
 export * from "./palette";
 export * from "./ratio";
 export * from "./sort-rows";

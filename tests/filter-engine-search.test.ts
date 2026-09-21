@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { ColumnTypes } from "../examples/column-types";
-import { applyAST, col, type FilterAST } from "../src";
+import { applyView, col, emptyGridView, type GridView } from "../src";
 
 // Free-text search matches through a case-insensitive regex built from the
 // query. These cover the two things that buys us trouble if it regresses: the
@@ -25,14 +25,13 @@ const rows: Row[] = [
   { name: "Ünïcode Ärm", sku: "SKU-6", note: 6 },
 ];
 
-const search = (query: string): FilterAST => ({
+const search = (query: string): GridView => ({
+  ...emptyGridView(),
   search: query,
-  and: [],
-  orGroups: [],
 });
 
 const names = (query: string) =>
-  applyAST(rows, search(query), columns).map((r) => r.name);
+  applyView(rows, search(query), columns).map((r) => r.name);
 
 describe("free-text search", () => {
   test("matches case-insensitively", () => {
@@ -74,6 +73,6 @@ describe("free-text search", () => {
     const noneSearchable = [
       col<Row>({ id: "note", label: "Note", type: ColumnTypes.NUMBER }),
     ];
-    expect(applyAST(rows, search("carbon"), noneSearchable)).toEqual([]);
+    expect(applyView(rows, search("carbon"), noneSearchable)).toEqual([]);
   });
 });

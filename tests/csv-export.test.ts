@@ -286,7 +286,7 @@ describe("sortRowsForExport", () => {
       }),
     ];
     expect(
-      sortRowsForExport(rows, [{ id: "adTitle", desc: false }], columns),
+      sortRowsForExport(rows, [{ field: "adTitle", dir: "asc" }], columns),
     ).toEqual([rows[1], rows[0]]);
   });
 
@@ -317,8 +317,8 @@ describe("sortRowsForExport", () => {
       sortRowsForExport(
         rows,
         [
-          { id: "priority", desc: true },
-          { id: "title", desc: false },
+          { field: "priority", dir: "desc" },
+          { field: "title", dir: "asc" },
         ],
         columns,
       ),
@@ -339,7 +339,7 @@ describe("sortRowsForExport", () => {
       }),
     ];
     expect(
-      sortRowsForExport(rows, [{ id: "title", desc: false }], columns),
+      sortRowsForExport(rows, [{ field: "title", dir: "asc" }], columns),
     ).toEqual([rows[1], rows[0]]);
   });
 
@@ -362,7 +362,7 @@ describe("sortRowsForExport", () => {
           notes: null,
         },
       ],
-      [{ id: "make", desc: false }],
+      [{ field: "make", dir: "asc" }],
       buildColumns(),
     );
     expect(out.map((r) => r.make)).toEqual([null, "Audi", "BMW", "Mercedes"]);
@@ -371,7 +371,7 @@ describe("sortRowsForExport", () => {
   test("sorts numbers descending with nulls last", () => {
     const out = sortRowsForExport(
       SAMPLE_ROWS,
-      [{ id: "priceWithVat", desc: true }],
+      [{ field: "priceWithVat", dir: "desc" }],
       buildColumns(),
     );
     // 35000, 25000, null
@@ -408,8 +408,8 @@ describe("sortRowsForExport", () => {
     const out = sortRowsForExport(
       rows,
       [
-        { id: "make", desc: false },
-        { id: "year", desc: true },
+        { field: "make", dir: "asc" },
+        { field: "year", dir: "desc" },
       ],
       buildColumns(),
     );

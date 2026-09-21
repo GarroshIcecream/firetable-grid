@@ -10,7 +10,7 @@ import * as schema from "../src/schema";
 // same module lands in the client bundle of the grid route. Re-exporting the
 // schemas from `./index` handed that cost straight back — a barrel makes every
 // consumer pay for its heaviest member, and `exports` offered no deep import to
-// escape through. Measured at the time: a root import of `applyAST` bundled to
+// escape through. Measured at the time: a root import of `applyView` bundled to
 // 124.77 KB against 2.88 KB for the same symbol imported from its own module.
 //
 // This walks the static import graph rather than bundling, so it stays fast and

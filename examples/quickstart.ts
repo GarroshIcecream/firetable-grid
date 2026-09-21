@@ -2,13 +2,16 @@
 // so an API change that breaks the documented example breaks the build.
 
 import {
-  applyAST,
+  all,
+  any,
+  applyView,
   buildCsvString,
   buildExportFilename,
   col,
-  EMPTY_FILTER_AST,
-  type FilterAST,
+  emptyGridView,
+  type GridView,
   toColumnDefs,
+  where,
 } from "../src";
 import { ColumnTypes } from "./column-types";
 
@@ -27,20 +30,23 @@ const columns = [
 
 export const columnDefs = toColumnDefs(columns);
 
-const ast: FilterAST = {
-  ...EMPTY_FILTER_AST,
+// "estate" typed in the search box, under £25,000, diesel or hybrid, cheapest
+// first, sectioned by fuel — the whole state of a grid in one object.
+const view: GridView = {
   search: "estate",
-  and: [{ field: "price", op: "≤", val: "25000" }],
-  orGroups: [
-    [
-      { field: "fuel", op: "is", val: "diesel" },
-      { field: "fuel", op: "is", val: "hybrid" },
-    ],
-  ],
+  filter: all(
+    where("price", "≤", "25000"),
+    any(where("fuel", "is", "diesel"), where("fuel", "is", "hybrid")),
+  ),
+  sort: [{ field: "price", dir: "asc" }],
+  group: { field: "fuel" },
 };
 
+// Nothing set yet, for comparison: a fresh view every call, safe to build up.
+export const defaultView = emptyGridView();
+
 export function report(rows: readonly Row[]) {
-  const visible = applyAST(rows, ast, columns);
+  const visible = applyView(rows, view, columns);
   return {
     csv: buildCsvString(visible, columns),
     filename: buildExportFilename({

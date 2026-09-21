@@ -2,7 +2,7 @@
 
 A schema-driven filter, sort, group and export engine for [TanStack Table](https://tanstack.com/table), generic over your row type.
 
-It is **headless and rendering-agnostic**: it owns the *state and logic* behind a data grid — a serializable filter AST, multi-column sorting, date grouping, threshold and enum colouring, column layout, and CSV/XLSX export — and leaves the cells and chrome to you. You describe your columns once; the engine works off that description.
+It is **headless and rendering-agnostic**: it owns the *state and logic* behind a data grid — one serializable view object holding search, filter, sort and grouping, date grouping, threshold and enum colouring, column layout, and CSV/XLSX export — and leaves the cells and chrome to you. You describe your columns once; the engine works off that description.
 
 Extracted from FireTable, where it backs every table in the product.
 
@@ -36,36 +36,64 @@ const columnDefs = toColumnDefs(columns);
 
 `col()` fills in the defaults implied by the type — filter operators, sortability, width, alignment — so a column declaration stays one line until it needs to say more.
 
-## Filtering
+## The view
 
-Filter state is a flat, serializable AST, which is what makes a saved view a piece of JSON:
+Everything a user can do to a table — search, filter, sort, group — is one
+serializable object, one field each. That is what makes a saved view a piece of
+JSON rather than four things you have to reassemble:
 
 ```ts
-import { applyAST, EMPTY_FILTER_AST, type FilterAST } from "firetable-grid";
+import { all, any, applyView, type GridView, where } from "firetable-grid";
 
-const ast: FilterAST = {
-  ...EMPTY_FILTER_AST,
+const view: GridView = {
   search: "estate",
-  and: [{ field: "price", op: "≤", val: "25000" }],
-  orGroups: [[
-    { field: "fuel", op: "is", val: "diesel" },
-    { field: "fuel", op: "is", val: "hybrid" },
-  ]],
+  filter: all(
+    where("price", "≤", "25000"),
+    any(where("fuel", "is", "diesel"), where("fuel", "is", "hybrid")),
+  ),
+  sort: [{ field: "price", dir: "asc" }],
+  group: { field: "fuel" },
 };
 
-const visible = applyAST(rows, ast, columns);
+const visible = applyView(rows, view, columns);   // search + filter
 ```
 
-`and` conditions must all match; each group in `orGroups` must have at least one match. `search` matches columns flagged `searchable`. Values are stored as strings and multi-select enums serialize comma-joined, so an AST survives a round trip through a database column unchanged.
+`emptyGridView()` returns a fresh default — its own object and its own arrays
+every call, so building one up by mutation can never reach into another view.
+`isGridViewEmpty(view)` is the "nothing set" check a reset button wants.
 
-Use `projectFilterAST(ast, keep)` to narrow an AST — it preserves the per-boundary boolean operators that a naive rebuild silently drops.
+A view is plain JSON with no functions in it: `JSON.stringify(view)` is the
+whole of persisting one.
 
-`EMPTY_FILTER_AST` is deeply frozen, including its `and` and `orGroups` arrays. Spreading it is safe as long as you supply your own array for anything you change, as above. If you build an AST by mutation, start from `emptyFilterAST()` instead — spreading the constant and then pushing would otherwise append to arrays that every other spread is sharing:
+### Filtering
 
-```ts
-const ast = emptyFilterAST();          // fresh arrays, safe to mutate
-ast.and.push({ field: "price", op: "≤", val: "25000" });
-```
+A filter is a tree. `where` tests one column; `all` and `any` combine — at any
+depth, so `(a AND (b OR c))` is expressible and a two-level builder is simply
+one that chooses not to nest. `filter: null` means unfiltered, and a branch with
+no children matches everything, so a filter row the user has started but not
+finished narrows nothing instead of emptying the grid mid-edit.
+
+Condition values are strings: a date range packs as `"from|to"`, a multi-select
+enum comma-joins. The wire format is stable and readable, so a stored view stays
+diffable and a human can fix one by hand.
+
+`search` matches columns flagged `searchable`, and always AND-gates the filter —
+a query narrows what the filter selected, whatever boolean shape it has.
+
+Use `projectFilter(filter, keep)` to narrow a filter to the conditions you want
+— it drops branches that lose every child and unwraps one left holding a single
+child. `countConditions(filter)` counts the leaves, which is what a "3 filters
+active" badge wants.
+
+`compileView(view, columns)` returns the row predicate itself if you want to
+stream rows or filter on a server; `applyView` is the array convenience over it.
+
+### Sorting
+
+Sort rules are `{ field, dir }`, matching the `field` a condition names and
+reading as itself in stored JSON. TanStack's `{ id, desc }` is confined to
+`toTanstackSorting` / `fromTanstackSorting` — nothing else in the engine, or in
+your code, has to know that shape exists.
 
 ## Export
 
@@ -128,17 +156,15 @@ import "firetable-grid/styles/grid.css";
 />;
 ```
 
-That is the whole minimal call — order, sizes, sorting and collapsed groups are
-uncontrolled until you pass them, so resizing works with no wiring. Pass any of
-them with its `on…Change` partner to take control and persist it:
+That is the whole minimal call — the view, order, sizes and collapsed groups are
+uncontrolled until you pass them, so sorting and resizing work with no wiring.
+Pass any of them with its `on…Change` partner to take control and persist it:
 
 ```tsx
 <DataGrid
   rows={rows} columns={columns} renderCell={renderCell}
   getRowId={(row) => row.id}                     // stable row identity
-  filter={ast}                                   // a FilterAST
-  sorting={sorting} onSortingChange={setSorting}
-  groupBy="category"
+  view={view} onViewChange={setView}             // search + filter + sort + group
   columnOrder={order} onColumnOrderChange={setOrder}
   columnSizes={sizes} onColumnSizesChange={setSizes}
   columnVisibility={visibility}                  // read-only: your manager owns it
@@ -156,8 +182,8 @@ or an arriving page makes React reuse one row's DOM for another — which bleeds
 cell state (an open popover, a focused input) from one row into the next.
 
 **Sorting is multi-column** — click a header to cycle asc → desc → off,
-shift-click to add a column to the sort. It runs through `toggleColumnSorting`,
-so the sort is capped at `MAX_TABLE_SORT_COLUMNS` (5) and a column that stops
+shift-click to add a column to the sort. It runs through `toggleSort`,
+so the sort is capped at `MAX_SORT_COLUMNS` (5) and a column that stops
 being sortable drops out on the next click. Pass `multiSort={false}` for
 single-column only. When more than one column is sorted each header shows its
 rank next to the arrow.
@@ -256,7 +282,8 @@ It pulls in no UI kit.
 
 | | |
 |---|---|
-| `sorting-state` | multi-column sort state, capped and normalized |
+| `grid-view` | `GridView` — search, filter, sort and grouping in one serializable object |
+| `sorting-state` | multi-column sort state, capped and normalized, plus the only two functions that know TanStack's sort shape |
 | `date-grouping` | group dates by day/week/month/quarter/year, with injectable relative labels. A value's calendar day is always the **local** one — a string contributes its literal `YYYY-MM-DD` prefix, a `Date` its local day — so filtering, grouping and both export formats agree on which day a row falls on |
 | `threshold` | value→colour bands, zod-free so cell renderers can import the resolvers |
 | `firetable-grid/schema` | zod schemas for validating stored threshold and enum-colour config — a separate entry point so zod stays out of your client bundle |
@@ -273,7 +300,7 @@ Both snippets above live in `examples/` as compiling code — `bun run typecheck
 `demo/index.html` is a prebuilt, self-contained page — open it straight from a
 clone, no server and no build step. It renders the package's own `<DataGrid>` — drag a
 header to reorder, drag a header's right edge to resize — with the engine's own
-state printed beside it: the live FilterAST, the resolved column layout with sticky
+state printed beside it: the live GridView, the resolved column layout with sticky
 offsets, the flat item list, and the CSV the current view would export. Filter,
 sort, group and collapse, and watch both sides change together.
 

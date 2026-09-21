@@ -1,4 +1,5 @@
 import type { AggregationType, CellAlignment } from "../column-vocabulary";
+import type { SortDirection, SortRule } from "../grid-view";
 
 export const EMPTY_GROUP_KEY = "\u2014";
 
@@ -160,11 +161,11 @@ export function buildColumnLayout<TItem>(
 // the direction buildFlatItems should order buckets by - the grouped column's
 // sort direction when it is sorted, else "asc" (the default A→Z group order).
 export function groupSortDirection(
-  sorting: readonly { id: string; desc: boolean }[],
+  sort: readonly SortRule[],
   groupField: string,
-): "asc" | "desc" {
-  const entry = sorting.find((sort) => sort.id === groupField);
-  return entry?.desc ? "desc" : "asc";
+): SortDirection {
+  const rule = sort.find((entry) => entry.field === groupField);
+  return rule?.dir === "desc" ? "desc" : "asc";
 }
 
 export function buildFlatItems<TData>(

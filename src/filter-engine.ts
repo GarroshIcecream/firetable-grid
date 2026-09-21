@@ -1,94 +1,108 @@
-// Schema-driven filter engine over typed `SchemaColumn<TData>`. State shape is a flat AST:
-//   - `and` conditions must all match (AND)
-//   - each `orGroups[i]` must have at least one match (AND across groups, OR within)
-//   - `search` matches against columns flagged `searchable`
-// Values are stored as strings; multi-select enums serialize as comma-joined
-// values. The wire format is stable, so a persisted view stays readable.
+// Schema-driven filter engine over typed `SchemaColumn<TData>`.
+//
+// A filter is a tree of `FilterNode`s: `where` leaves that test one column, and
+// `all` / `any` branches that combine them. The names mean what they say at
+// every depth, so reading a stored filter never needs a lookup table of which
+// array pairs with which operator list.
+//
+// Condition values are stored as strings — a date range packs as "from|to", a
+// multi-select enum comma-joins its values. The wire format is stable and
+// readable, so a persisted view stays diffable and a human can fix one by hand.
+//
+// The whole of a grid's state (search, filter, sort, group) lives in `GridView`
+// — see `./grid-view`.
 
 import type { RowData } from "@tanstack/react-table";
 import type { SchemaColumn } from "./column-schema";
 import type { FilterOp } from "./column-vocabulary";
 import { toYmd } from "./date-grouping";
+import type { GridView } from "./grid-view";
 
-export type LogicalOp = "and" | "or";
-
+/** Tests one column against one value. */
 export interface FilterCondition {
+  kind: "where";
   field: string;
   op: FilterOp;
-  val: string;
+  value: string;
 }
 
-export interface FilterAST {
-  search: string;
-  and: FilterCondition[];
-  orGroups: FilterCondition[][];
-  // How the top-level terms (each `and` condition + each `orGroups` group) are
-  // combined. Optional for backward compatibility with saved views written
-  // before per-boundary operators existed — absent means "and" (legacy).
-  andOp?: LogicalOp;
-  // Inner operator for each `orGroups[i]`, index-aligned. Absent entry means
-  // "or" (legacy: groups were OR-within).
-  groupOps?: LogicalOp[];
+/** Every child must match. */
+export interface FilterAll {
+  kind: "all";
+  of: FilterNode[];
+}
+
+/** At least one child must match. */
+export interface FilterAny {
+  kind: "any";
+  of: FilterNode[];
+}
+
+export type FilterNode = FilterCondition | FilterAll | FilterAny;
+
+// ── Builders ───────────────────────────────────────────────────────────────
+//
+// Filters read like the sentence they represent:
+//
+//   all(
+//     where("price", "≤", "25000"),
+//     any(where("fuel", "is", "diesel"), where("fuel", "is", "hybrid")),
+//   )
+
+export function where(
+  field: string,
+  op: FilterOp,
+  value = "",
+): FilterCondition {
+  return { kind: "where", field, op, value };
+}
+
+export function all(...of: FilterNode[]): FilterAll {
+  return { kind: "all", of };
+}
+
+export function any(...of: FilterNode[]): FilterAny {
+  return { kind: "any", of };
+}
+
+/** Number of `where` leaves — what a "3 filters active" badge counts. */
+export function countConditions(node: FilterNode | null): number {
+  if (node === null) return 0;
+  if (node.kind === "where") return 1;
+  let total = 0;
+  for (const child of node.of) total += countConditions(child);
+  return total;
 }
 
 /**
- * The no-filter AST, deeply frozen.
+ * Rebuild a filter keeping only the conditions that satisfy `keep`.
  *
- * `Object.freeze` alone would leave `and` and `orGroups` writable, and the
- * usual way to reach a new AST - `{ ...EMPTY_FILTER_AST, search: "estate" }` -
- * copies those array *references* rather than their contents. A single
- * `ast.and.push(condition)` downstream would then append to this module-level
- * constant, which every other spread is also sharing: the filter leaks into
- * unrelated views and, on a server, across requests and tenants.
- *
- * Frozen, that push throws at the call site instead (module code is strict).
- * Use `emptyFilterAST()` when you want an AST you can mutate in place, or keep
- * spreading and supply your own arrays for the keys you are changing.
+ * Returns `null` when nothing survives, and unwraps a branch left holding a
+ * single child (`any(a)` and `a` select the same rows, so the wrapper is noise).
+ * Because each branch stores its own children, dropping one can no longer
+ * misalign an operator with the wrong group — the failure this function used to
+ * exist to prevent.
  */
-export const EMPTY_FILTER_AST: FilterAST = Object.freeze({
-  search: "",
-  and: Object.freeze([]) as unknown as FilterCondition[],
-  orGroups: Object.freeze([]) as unknown as FilterCondition[][],
-}) as FilterAST;
-
-/** A fresh, fully mutable no-filter AST. Prefer this over spreading
- *  `EMPTY_FILTER_AST` anywhere the result is built up by mutation. */
-export function emptyFilterAST(): FilterAST {
-  return { search: "", and: [], orGroups: [] };
-}
-
-/**
- * Rebuild an AST keeping only the conditions that satisfy `keep`.
- *
- * Use this instead of hand-writing a `{ search, and, orGroups }` literal:
- * that shape silently drops `andOp` / `groupOps`, which turns a user's OR
- * filter into an AND one. Groups that lose every condition are dropped and
- * `groupOps` is reindexed with them - the two arrays are index-aligned, so
- * filtering groups alone rewires which operator applies to which group.
- */
-export function projectFilterAST(
-  ast: FilterAST,
+export function projectFilter(
+  node: FilterNode | null,
   keep: (condition: FilterCondition) => boolean,
-): FilterAST {
-  const orGroups: FilterCondition[][] = [];
-  const groupOps: LogicalOp[] = [];
-  ast.orGroups.forEach((group, i) => {
-    const kept = group.filter(keep);
-    if (kept.length === 0) return;
-    orGroups.push(kept);
-    groupOps.push(ast.groupOps?.[i] ?? "or");
-  });
-  return {
-    search: ast.search,
-    and: ast.and.filter(keep),
-    orGroups,
-    ...(ast.andOp === undefined ? {} : { andOp: ast.andOp }),
-    ...(ast.groupOps === undefined ? {} : { groupOps }),
-  };
+): FilterNode | null {
+  if (node === null) return null;
+  if (node.kind === "where") return keep(node) ? node : null;
+
+  const of: FilterNode[] = [];
+  for (const child of node.of) {
+    const kept = projectFilter(child, keep);
+    if (kept !== null) of.push(kept);
+  }
+  if (of.length === 0) return null;
+  if (of.length === 1) return of[0];
+  return { kind: node.kind, of };
 }
 
 // Operators that test presence/absence of a value; they are the only ones that
-// must NOT short-circuit on an empty row value.
+// must NOT short-circuit on an empty row value. Useful to a filter-builder UI
+// deciding whether to render a value input at all.
 export function isEmptyOp(op: FilterOp): boolean {
   return op === "is empty" || op === "is not empty";
 }
@@ -104,33 +118,17 @@ function buildColumnMap<TData extends RowData>(
   return new Map(columns.map((c) => [c.id, c]));
 }
 
-export function isFilterASTEmpty(ast: FilterAST): boolean {
-  return (
-    ast.search.length === 0 &&
-    ast.and.length === 0 &&
-    ast.orGroups.every((g) => g.length === 0)
-  );
-}
-
-export function countFilters(ast: FilterAST): number {
-  return (
-    ast.and.length +
-    ast.orGroups.reduce((n, g) => n + (g.length > 0 ? 1 : 0), 0)
-  );
-}
-
 // ── Compilation ────────────────────────────────────────────────────────────
 //
 // A condition's *value* is fixed for the whole scan; only the row changes. So
-// every `Number.parseFloat(val)`, `val.toLowerCase()`, `val.split(",")` and
-// column lookup is hoisted into a closure built once per `applyAST`, and the
-// row loop calls a plain predicate. Evaluating in place instead re-derived
+// every `Number.parseFloat(value)`, `value.toLowerCase()`, `value.split(",")`
+// and column lookup is hoisted into a closure built once per `compileView`, and
+// the row loop calls a plain predicate. Evaluating in place instead re-derived
 // those constants once per row - 50,000 times over a 50,000-row grid - and
 // allocated an array of term results per row before reducing it.
 //
-// Compiling also buys short-circuiting: an AND whose first term rejects a row
-// never evaluates the rest, which the old `terms.every(Boolean)` could not do
-// because every term was computed before the reduce ran.
+// Compiling also buys short-circuiting: an `all` whose first child rejects a
+// row never evaluates the rest.
 
 type RowPredicate<TData> = (row: TData) => boolean;
 
@@ -197,9 +195,9 @@ function compileNumeric<TData extends RowData>(
   read: (row: TData) => unknown,
   col: SchemaColumn<TData>,
   op: FilterOp,
-  val: string,
+  value: string,
 ): RowPredicate<TData> {
-  let fv = Number.parseFloat(val);
+  let fv = Number.parseFloat(value);
   // Percentage-point entry: ratio columns store 0..1 fractions but the user
   // types points (50 → 50%). Scale the typed value into the stored unit.
   if (col.type.ratioStored) fv /= 100;
@@ -226,10 +224,10 @@ function compileNumeric<TData extends RowData>(
 function compileDate<TData extends RowData>(
   read: (row: TData) => unknown,
   op: FilterOp,
-  val: string,
+  value: string,
 ): RowPredicate<TData> {
   if (op === "between") {
-    const [from, to] = val.split("|");
+    const [from, to] = value.split("|");
     if (!from && !to) return ALWAYS_TRUE; // no bounds set yet → don't filter
     return (row) => {
       const ymd = toYmd(read(row));
@@ -239,20 +237,20 @@ function compileDate<TData extends RowData>(
       return true;
     };
   }
-  if (!val) return ALWAYS_TRUE; // no value picked yet → don't filter
+  if (!value) return ALWAYS_TRUE; // no value picked yet → don't filter
   switch (op) {
     case "on":
-      return (row) => toYmd(read(row)) === val;
+      return (row) => toYmd(read(row)) === value;
     case "before": {
       return (row) => {
         const ymd = toYmd(read(row));
-        return ymd !== "" && ymd < val;
+        return ymd !== "" && ymd < value;
       };
     }
     case "after": {
       return (row) => {
         const ymd = toYmd(read(row));
-        return ymd !== "" && ymd > val;
+        return ymd !== "" && ymd > value;
       };
     }
     default:
@@ -268,9 +266,9 @@ function compileDate<TData extends RowData>(
 function compileSetValued<TData extends RowData>(
   read: (row: TData) => unknown,
   op: FilterOp,
-  val: string,
+  value: string,
 ): RowPredicate<TData> {
-  const wanted = new Set(splitLower(val));
+  const wanted = new Set(splitLower(value));
   if (wanted.size === 0) return ALWAYS_TRUE;
   const negate = op === "is not";
   return (row) => {
@@ -288,7 +286,7 @@ function compileCondition<TData extends RowData>(
   if (!col) return ALWAYS_TRUE; // unknown column → skip rather than exclude
 
   const read = accessorFor(col);
-  const { op, val } = condition;
+  const { op, value } = condition;
 
   // ── Empty / not-empty (checked before every type branch) ──
   // A row value counts as empty when it is null/undefined, a blank string, or
@@ -300,25 +298,25 @@ function compileCondition<TData extends RowData>(
   if (op === "is not empty") return (row) => !isRowValueEmpty(read(row));
 
   const filterType = col.type.filterType;
-  if (filterType === "date") return compileDate(read, op, val);
-  if (filterType === "numeric") return compileNumeric(read, col, op, val);
+  if (filterType === "date") return compileDate(read, op, value);
+  if (filterType === "numeric") return compileNumeric(read, col, op, value);
   if (filterType === "enum" && col.type.setValued) {
-    return compileSetValued(read, op, val);
+    return compileSetValued(read, op, value);
   }
 
   // ── Empty-row exclusion for scalar comparisons ──
   // The remaining branches compare a single concrete value; an empty row value
   // is excluded so it can't slip past "is not" / "contains" (the "no value
   // matches every filter" bug). An unset filter value stays a no-op.
-  const emptyMatches = val.trim() === "";
+  const emptyMatches = value.trim() === "";
 
   // ── Multi-select enum (comma-joined values) ──
   if (
     col.multiSelect &&
     (op === "is" || op === "is not") &&
-    val.includes(",")
+    value.includes(",")
   ) {
-    const wanted = new Set(splitLower(val));
+    const wanted = new Set(splitLower(value));
     // A value of nothing but separators ("," / " , ") selects nothing, so it
     // filters nothing - but an empty row is still judged by the exclusion
     // above rather than waved through.
@@ -334,7 +332,7 @@ function compileCondition<TData extends RowData>(
   }
 
   // ── Text / single-enum ──
-  const fvl = val.toLowerCase();
+  const fvl = value.toLowerCase();
   switch (op) {
     case "is":
       return (row) => {
@@ -378,6 +376,23 @@ function someOf<TData>(
     for (const pred of preds) if (pred(row)) return true;
     return false;
   };
+}
+
+/**
+ * Compile one node into a row predicate, recursing through the branches.
+ *
+ * A branch with no children matches everything, whichever kind it is. That is
+ * the same rule as an unset condition value: a filter row the user has started
+ * but not finished narrows nothing, rather than emptying the grid under them.
+ */
+function compileNode<TData extends RowData>(
+  node: FilterNode,
+  colMap: ColumnMap<TData>,
+): RowPredicate<TData> {
+  if (node.kind === "where") return compileCondition(node, colMap);
+  if (node.of.length === 0) return ALWAYS_TRUE;
+  const children = node.of.map((child) => compileNode(child, colMap));
+  return node.kind === "all" ? everyOf(children) : someOf(children);
 }
 
 /** Escapes the characters a regex treats specially, so a query like "3.5 (new)"
@@ -426,49 +441,39 @@ function compileSearch<TData extends RowData>(
 }
 
 /**
- * Compile an AST into a single row predicate.
+ * Compile a view's row-narrowing half — `search` and `filter` — into a single
+ * predicate. `sort` and `group` reorder rows rather than remove them, so they
+ * play no part here.
  *
- * Each `and` condition and each non-empty group is a top-level term; terms are
- * combined with `andOp` (default "and" for legacy views). A group is reduced
- * with its own inner op (default "or"). Free-text search is always an AND-gate,
- * independent of the top-level op.
+ * Exported because the predicate is the useful primitive: it streams, it works
+ * a row at a time on a server, and it costs nothing per row beyond the tests
+ * the view actually asks for. `applyView` is the array-shaped convenience.
  */
-function compileAST<TData extends RowData>(
-  ast: FilterAST,
+export function compileView<TData extends RowData>(
+  view: GridView,
   columns: readonly SchemaColumn<TData>[],
 ): RowPredicate<TData> {
   const colMap = buildColumnMap(columns);
-
-  const terms: Array<RowPredicate<TData>> = [];
-  for (const condition of ast.and) {
-    terms.push(compileCondition(condition, colMap));
-  }
-  ast.orGroups.forEach((group, gi) => {
-    if (group.length === 0) return;
-    const inner = group.map((c) => compileCondition(c, colMap));
-    const groupOp = ast.groupOps?.[gi] ?? "or";
-    terms.push(groupOp === "and" ? everyOf(inner) : someOf(inner));
-  });
-
   const body =
-    terms.length === 0
+    view.filter === null
       ? (ALWAYS_TRUE as RowPredicate<TData>)
-      : (ast.andOp ?? "and") === "and"
-        ? everyOf(terms)
-        : someOf(terms);
+      : compileNode(view.filter, colMap);
 
-  const search = compileSearch(ast.search, columns, colMap);
+  // Search is always an AND-gate over the filter, never a term inside it: a
+  // query narrows what the filter selected, whatever boolean shape it has.
+  const search = compileSearch(view.search, columns, colMap);
   if (!search) return body;
   return (row) => search(row) && body(row);
 }
 
-export function applyAST<TData extends RowData>(
+/** Every row a view's search and filter select, in the order given. */
+export function applyView<TData extends RowData>(
   data: readonly TData[],
-  ast: FilterAST,
+  view: GridView,
   columns: readonly SchemaColumn<TData>[],
 ): TData[] {
-  if (isFilterASTEmpty(ast)) return data.slice();
-  const matches = compileAST(ast, columns);
+  if (view.search === "" && view.filter === null) return data.slice();
+  const matches = compileView(view, columns);
   const out: TData[] = [];
   for (const row of data) {
     if (matches(row)) out.push(row);

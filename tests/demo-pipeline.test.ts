@@ -5,13 +5,16 @@
 import { describe, expect, test } from "bun:test";
 import { buildColumns, buildRows, type Item } from "../demo/data";
 import {
-  applyAST,
+  all,
+  applyView,
   buildCsvString,
   buildExportFilename,
-  type FilterAST,
+  emptyGridView,
+  type GridView,
   resolveThresholdColor,
   sortRowsForExport,
   thresholdClasses,
+  where,
 } from "../src";
 import {
   buildColumnLayout,
@@ -21,10 +24,8 @@ import {
 
 const rows = buildRows();
 const columns = buildColumns();
-const ast = (over: Partial<FilterAST> = {}): FilterAST => ({
-  search: "",
-  and: [],
-  orGroups: [],
+const view = (over: Partial<GridView> = {}): GridView => ({
+  ...emptyGridView(),
   ...over,
 });
 
@@ -51,23 +52,23 @@ describe("search", () => {
     expect(searchable).toEqual(["name", "sku"]);
 
     const hit = rows[3].sku;
-    const found = applyAST(rows, ast({ search: hit }), columns);
+    const found = applyView(rows, view({ search: hit }), columns);
     expect(found).toHaveLength(1);
     expect(found[0].sku).toBe(hit);
   });
 
   test("a value present only in a non-searchable column matches nothing", () => {
     // `supplier` is not searchable, so its values must not leak into search.
-    const found = applyAST(rows, ast({ search: rows[0].supplier }), columns);
+    const found = applyView(rows, view({ search: rows[0].supplier }), columns);
     expect(found).toHaveLength(0);
   });
 });
 
 describe("filter conditions", () => {
   test("a numeric bound keeps only rows under it", () => {
-    const out = applyAST(
+    const out = applyView(
       rows,
-      ast({ and: [{ field: "price", op: "≤", val: "500" }] }),
+      view({ filter: where("price", "≤", "500") }),
       columns,
     );
     expect(out.length).toBeGreaterThan(0);
@@ -76,18 +77,18 @@ describe("filter conditions", () => {
   });
 
   test("conditions AND together", () => {
-    const one = applyAST(
+    const one = applyView(
       rows,
-      ast({ and: [{ field: "category", op: "is", val: "Wheels" }] }),
+      view({ filter: where("category", "is", "Wheels") }),
       columns,
     );
-    const two = applyAST(
+    const two = applyView(
       rows,
-      ast({
-        and: [
-          { field: "category", op: "is", val: "Wheels" },
-          { field: "daysInStock", op: ">", val: "60" },
-        ],
+      view({
+        filter: all(
+          where("category", "is", "Wheels"),
+          where("daysInStock", ">", "60"),
+        ),
       }),
       columns,
     );
@@ -103,12 +104,12 @@ describe("sorting", () => {
   test("ascending and descending are genuine inversions", () => {
     const asc = sortRowsForExport(
       rows,
-      [{ id: "price", desc: false }],
+      [{ field: "price", dir: "asc" }],
       columns,
     );
     const desc = sortRowsForExport(
       rows,
-      [{ id: "price", desc: true }],
+      [{ field: "price", dir: "desc" }],
       columns,
     );
     expect(asc.map((r) => r.price)).toEqual(
@@ -159,12 +160,12 @@ describe("grouping", () => {
 
   test("group order follows the grouped column's sort direction", () => {
     expect(
-      groupSortDirection([{ id: "category", desc: true }], "category"),
+      groupSortDirection([{ field: "category", dir: "desc" }], "category"),
     ).toBe("desc");
     // Sorting a different column must not flip the group order.
-    expect(groupSortDirection([{ id: "price", desc: true }], "category")).toBe(
-      "asc",
-    );
+    expect(
+      groupSortDirection([{ field: "price", dir: "desc" }], "category"),
+    ).toBe("asc");
   });
 });
 
