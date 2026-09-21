@@ -3,13 +3,13 @@
 import type { RowData } from "@tanstack/react-table";
 import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
 import type { CategoryResolver } from "../column-category-layout";
-import {
-  buildVisibility,
-  isColumnVisible,
-  type SchemaColumn,
-} from "../column-schema";
+import type { SchemaColumn } from "../column-schema";
 import { applyView } from "../filter-engine";
-import { emptyGridView, type GridView } from "../grid-view";
+import {
+  type ColumnLayoutState,
+  emptyGridView,
+  type GridView,
+} from "../grid-view";
 import {
   buildCellSpecs,
   buildColumnLayout,
@@ -27,6 +27,7 @@ import {
 } from "../layout";
 import { sortRowsForExport } from "../sort-rows";
 import { getColumnSort, sortRulesEqual, toggleSort } from "../sorting-state";
+import { resolveColumnOrder, resolveColumnPins } from "../view-columns";
 import { useColumnReorder } from "./use-column-reorder";
 import { MAX_COLUMN_WIDTH, useColumnResize } from "./use-column-resize";
 
@@ -37,9 +38,13 @@ export interface DataGridProps<TData extends RowData> {
   renderCell: (column: SchemaColumn<TData>, row: TData) => ReactNode;
 
   /**
-   * Search, filter, sort and grouping in one object. Leave it off and the grid
-   * keeps its own, so the minimal call still sorts on a header click; pass it
-   * and the grid is fully controlled.
+   * Search, filter, sort, grouping and column layout in one object. Leave it
+   * off and the grid keeps its own, so the minimal call still sorts and
+   * resizes; pass it and the grid is fully controlled.
+   *
+   * Column order, widths, visibility and pins live in `view.columns`. They were
+   * five separate props until 0.3.0; keeping both would have meant two sources
+   * of truth for one piece of state.
    */
   view?: GridView;
   /** Fires with the whole next view whenever the grid changes part of it —
@@ -61,27 +66,6 @@ export interface DataGridProps<TData extends RowData> {
   getGroupValue?: GroupValueFn;
   collapsedGroups?: ReadonlySet<string>;
   onCollapsedGroupsChange?: (collapsed: Set<string>) => void;
-
-  /** Column order by id. Uncontrolled when omitted. */
-  columnOrder?: readonly string[];
-  onColumnOrderChange?: (order: string[]) => void;
-
-  /** Column widths by id, overriding each column's own `width`. */
-  columnSizes?: Readonly<Record<string, number>>;
-  onColumnSizesChange?: (sizes: Record<string, number>) => void;
-
-  /**
-   * Which columns are shown, by id. Read-only: the grid has no column manager
-   * of its own, so nothing inside it writes here - your manager owns the state
-   * and passes it down. Absent from the record means visible; seed it with
-   * `buildVisibility(columns)` to start from the schema's own defaults, which
-   * is what the grid does when you leave this off.
-   *
-   * It is the same record `selectExportColumns` and `buildFooterAggregateQuery`
-   * read, so hiding a column drops it from the screen, the export and the
-   * footer query together.
-   */
-  columnVisibility?: Readonly<Record<string, boolean>>;
 
   /** Drag to reorder columns. Off unless you ask for it. */
   reorderable?: boolean;
@@ -106,6 +90,10 @@ function cx(...parts: (string | false | undefined)[]) {
   return parts.filter(Boolean).join(" ");
 }
 
+/** Stable identity for an unsized grid, so the layout memo is not invalidated
+ *  by a fresh `{}` on every render. */
+const EMPTY_SIZES: Readonly<Record<string, number>> = {};
+
 export function DataGrid<TData extends RowData>({
   rows,
   columns,
@@ -117,11 +105,6 @@ export function DataGrid<TData extends RowData>({
   getGroupValue,
   collapsedGroups,
   onCollapsedGroupsChange,
-  columnOrder,
-  onColumnOrderChange,
-  columnSizes,
-  onColumnSizesChange,
-  columnVisibility,
   reorderable = false,
   categoryOf,
   resizable = true,
@@ -133,45 +116,16 @@ export function DataGrid<TData extends RowData>({
 
   // Every piece of state can be driven from outside or left to the grid, so the
   // minimal call is `<DataGrid rows columns renderCell />` and resizing works.
-  const [ownOrder, setOwnOrder] = useState<string[]>(() =>
-    columns.map((c) => c.id),
-  );
-  const [ownSizes, setOwnSizes] = useState<Record<string, number>>({});
   const [ownView, setOwnView] = useState<GridView>(emptyGridView);
   const [ownCollapsed, setOwnCollapsed] = useState<Set<string>>(
     () => new Set(),
   );
 
-  const order = columnOrder ?? ownOrder;
-  const sizes = columnSizes ?? ownSizes;
   const activeView = view ?? ownView;
   const groupField = activeView.group?.field ?? "";
   const collapsed = collapsedGroups ?? ownCollapsed;
-  // Derived, not owned: nothing inside the grid writes visibility, so this has
-  // to track `columns` rather than freeze at mount - otherwise a column added
-  // later renders even when its schema says `visible: false`.
-  const schemaVisibility = useMemo(
-    () => buildVisibility([...columns]),
-    [columns],
-  );
-  const visibility = columnVisibility ?? schemaVisibility;
-
-  const setOrder = useCallback(
-    (next: string[]) => {
-      if (onColumnOrderChange) onColumnOrderChange(next);
-      if (!columnOrder) setOwnOrder(next);
-    },
-    [columnOrder, onColumnOrderChange],
-  );
-
-  const commitSizes = useCallback(
-    (patch: Record<string, number>) => {
-      const next = { ...sizes, ...patch };
-      if (onColumnSizesChange) onColumnSizesChange(next);
-      if (!columnSizes) setOwnSizes(next);
-    },
-    [sizes, columnSizes, onColumnSizesChange],
-  );
+  const layoutState = activeView.columns;
+  const sizes = layoutState?.sizes ?? EMPTY_SIZES;
 
   const setView = useCallback(
     (next: GridView) => {
@@ -179,6 +133,28 @@ export function DataGrid<TData extends RowData>({
       if (!view) setOwnView(next);
     },
     [view, onViewChange],
+  );
+
+  /** Patch only the column layout, leaving the rest of the view untouched.
+   *  When the view carries no layout yet, the first drag creates one holding
+   *  just the field that changed - so a grid that has only been resized
+   *  reports exactly that, and the diff treats order as untracked. */
+  const patchColumns = useCallback(
+    (patch: Partial<ColumnLayoutState>) => {
+      setView({ ...activeView, columns: { ...activeView.columns, ...patch } });
+    },
+    [activeView, setView],
+  );
+
+  const setOrder = useCallback(
+    (next: string[]) => patchColumns({ order: next }),
+    [patchColumns],
+  );
+
+  const commitSizes = useCallback(
+    (patch: Record<string, number>) =>
+      patchColumns({ sizes: { ...sizes, ...patch } }),
+    [patchColumns, sizes],
   );
 
   const toggleGroup = useCallback(
@@ -192,24 +168,15 @@ export function DataGrid<TData extends RowData>({
     [collapsed, collapsedGroups, onCollapsedGroupsChange],
   );
 
-  // A column the order does not mention is appended, so adding one to `columns`
-  // never makes it silently invisible.
-  const ordered = useMemo(() => {
-    const byId = new Map(columns.map((c) => [c.id, c]));
-    const seen = new Set<string>();
-    const out: SchemaColumn<TData>[] = [];
-    for (const id of order) {
-      const column = byId.get(id);
-      if (column && !seen.has(id)) {
-        seen.add(id);
-        out.push(column);
-      }
-    }
-    for (const column of columns) {
-      if (!seen.has(column.id)) out.push(column);
-    }
-    return out.filter((c) => isColumnVisible(c.id, visibility));
-  }, [columns, order, visibility]);
+  const ordered = useMemo(
+    () => resolveColumnOrder(columns, layoutState),
+    [columns, layoutState],
+  );
+
+  const pins = useMemo(
+    () => resolveColumnPins(ordered, layoutState),
+    [ordered, layoutState],
+  );
 
   const layout = useMemo(
     () =>
@@ -220,9 +187,9 @@ export function DataGrid<TData extends RowData>({
           minWidth: c.minWidth,
           size: sizes[c.id] ?? c.width,
         })),
-        ordered.filter((c) => c.frozen).map((c) => c.id),
+        pins.pinned,
       ),
-    [ordered, sizes],
+    [ordered, sizes, pins],
   );
 
   // Class list and style are functions of the *column*, not the row, but a
@@ -269,9 +236,10 @@ export function DataGrid<TData extends RowData>({
   // Pinned columns are excluded: a frozen column that drifts out of the frozen
   // block would leave the sticky offsets describing an order that no longer
   // exists.
+  const lockedIds = useMemo(() => new Set(pins.locked), [pins]);
   const participating = useMemo(
-    () => new Set(layout.filter((e) => !e.isPinned).map((e) => e.id)),
-    [layout],
+    () => new Set(layout.filter((e) => !lockedIds.has(e.id)).map((e) => e.id)),
+    [layout, lockedIds],
   );
 
   const reorder = useColumnReorder({

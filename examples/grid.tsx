@@ -9,6 +9,7 @@ import {
   emptyGridView,
   type GridView,
   isColumnVisible,
+  isViewDirty,
   type SchemaColumn,
   selectExportColumns,
 } from "../src";
@@ -65,8 +66,9 @@ export function MinimalGrid({ rows }: { rows: readonly Row[] }) {
 }
 
 /** Everything controlled, which is what you want once a view is persisted.
- *  Search, filter, sort and grouping arrive as one object and leave as one,
- *  so persisting the view is `JSON.stringify(view)` and nothing else. */
+ *  Search, filter, sort, grouping AND column layout arrive as one object and
+ *  leave as one, so persisting the view is `JSON.stringify(view)` and nothing
+ *  else - and `isViewDirty(view, saved)` answers the save button. */
 export function ControlledGrid({
   rows,
   initialView = { ...emptyGridView(), group: { field: "category" } },
@@ -75,23 +77,38 @@ export function ControlledGrid({
   initialView?: GridView;
 }) {
   const [view, setView] = useState<GridView>(initialView);
-  const [order, setOrder] = useState<string[]>(() => columns.map((c) => c.id));
-  const [sizes, setSizes] = useState<Record<string, number>>({});
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
-  // Read-only as far as the grid is concerned: your column manager owns it.
-  const [visibility, setVisibility] = useState(() => buildVisibility(columns));
 
+  // Still read-only as far as the grid is concerned - nothing inside it writes
+  // visibility. Your column manager writes it here instead of into a useState
+  // of its own, which is what lets a hidden column be saved and diffed with
+  // the rest of the view.
+  const visibility = view.columns?.visibility ?? buildVisibility(columns);
   const hide = (id: string) =>
-    setVisibility((v) => ({ ...v, [id]: !isColumnVisible(id, v) }));
+    setView((v) => ({
+      ...v,
+      columns: {
+        ...v.columns,
+        visibility: { ...visibility, [id]: !isColumnVisible(id, visibility) },
+      },
+    }));
 
   // The same record the grid reads, so the file is what is on screen.
-  const exportColumns = selectExportColumns(columns, order, visibility, rows);
+  const exportColumns = selectExportColumns(
+    columns,
+    view.columns?.order ?? columns.map((c) => c.id),
+    visibility,
+    rows,
+  );
 
   return (
     <>
       <button type="button" onClick={() => hide("price")}>
         Toggle Price ({exportColumns.length} columns export)
       </button>
+      <span>
+        {isViewDirty(view, initialView) ? "Unsaved changes" : "Saved"}
+      </span>
       <DataGrid
         rows={rows}
         columns={columns}
@@ -101,11 +118,6 @@ export function ControlledGrid({
         onViewChange={setView}
         collapsedGroups={collapsed}
         onCollapsedGroupsChange={setCollapsed}
-        columnOrder={order}
-        onColumnOrderChange={setOrder}
-        columnSizes={sizes}
-        onColumnSizesChange={setSizes}
-        columnVisibility={visibility}
         reorderable
         categoryOf={(id) => CATEGORY[id]}
       />

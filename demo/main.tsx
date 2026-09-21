@@ -162,13 +162,6 @@ function App() {
   const [wrapCells, setWrapCells] = useState(false);
   const [reorderable, setReorderable] = useState(true);
   const [byCategory, setByCategory] = useState(false);
-  const [order, setOrder] = useState<string[]>(() => columns.map((c) => c.id));
-  const [sizes, setSizes] = useState<Record<string, number>>({});
-  // Seeded from the schema's own `visible` flags. Absent from the record means
-  // visible, which is the same contract the CSV export reads.
-  const [visibility, setVisibility] = useState<Record<string, boolean>>(() =>
-    buildVisibility(columns),
-  );
 
   // Draft filter-builder state
   const [field, setField] = useState(
@@ -176,6 +169,14 @@ function App() {
   );
   const [op, setOp] = useState<FilterOp>("is");
   const [val, setVal] = useState("");
+
+  // Order, widths and visibility are part of the view now - the panel on the
+  // right prints all of it as the one object a saved view stores.
+  const order = view.columns?.order ?? columns.map((c) => c.id);
+  const sizes = view.columns?.sizes ?? {};
+  const visibility = view.columns?.visibility ?? buildVisibility(columns);
+  const patchColumns = (patch: Record<string, unknown>) =>
+    setView((v) => ({ ...v, columns: { ...v.columns, ...patch } }));
 
   const filtered = useMemo(() => applyView(rows, view, columns), [view]);
   const ordered = useMemo(
@@ -238,12 +239,8 @@ function App() {
     URL.revokeObjectURL(a.href);
   };
 
-  const reset = () => {
-    setView(emptyGridView());
-    setOrder(columns.map((c) => c.id));
-    setSizes({});
-    setVisibility(buildVisibility(columns));
-  };
+  // One call now clears filter, sort, grouping AND the column layout.
+  const reset = () => setView(emptyGridView());
 
   return (
     <main className="layout">
@@ -373,10 +370,12 @@ function App() {
                       type="checkbox"
                       checked={isColumnVisible(c.id, visibility)}
                       onChange={(e) =>
-                        setVisibility((v) => ({
-                          ...v,
-                          [c.id]: e.target.checked,
-                        }))
+                        patchColumns({
+                          visibility: {
+                            ...visibility,
+                            [c.id]: e.target.checked,
+                          },
+                        })
                       }
                     />
                     <span>{c.label}</span>
@@ -448,11 +447,6 @@ function App() {
           getRowId={(row) => row.sku}
           view={view}
           onViewChange={setView}
-          columnVisibility={visibility}
-          columnOrder={order}
-          onColumnOrderChange={setOrder}
-          columnSizes={sizes}
-          onColumnSizesChange={setSizes}
           reorderable={reorderable}
           categoryOf={byCategory ? categoryOf : undefined}
           wrapCells={wrapCells}
@@ -520,8 +514,8 @@ function App() {
 
         <h3>GridView</h3>
         <p className="note">
-          Search, filter, sort and grouping in one serializable object — this is
-          exactly what a saved view stores.
+          Search, filter, sort, grouping and the column layout in one
+          serializable object — this is exactly what a saved view stores.
         </p>
         <pre>{JSON.stringify(view, null, 2)}</pre>
 
