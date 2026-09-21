@@ -433,7 +433,7 @@ holds the placeholders; it is not a page you can open.
 
 ```bash
 bun install
-bun test          # 419 tests
+bun test          # 465 tests
 bun run typecheck
 bun run lint
 bun run bench     # performance suite (see Benchmarks above)
