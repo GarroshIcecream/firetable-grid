@@ -10,7 +10,12 @@
 // It is measured at the top of the ladder anyway, to prove that.
 
 import { barplot, bench, do_not_optimize, group, run, summary } from "mitata";
-import { type SortRule, sortRowsForExport } from "../src";
+import {
+  dateGroupValue,
+  type RelativeLabels,
+  type SortRule,
+  sortRowsForExport,
+} from "../src";
 import {
   buildCellSpecs,
   buildColumnLayout,
@@ -44,6 +49,25 @@ const layoutInput = columns.map((c) => ({
   size: c.width,
 }));
 const frozen = columns.slice(0, 3).map((c) => c.id);
+
+// `buildFlatItems`'s DEFAULT resolver is `String(raw)` - it never parses a
+// date. Benchmarking "grouped by date" through it measures string hashing and
+// group count, not date handling. The real date path is `dateGroupValue`,
+// which a consumer passes as `getGroupValue`, and which is the only thing here
+// that calls `toYmd` (and, in relative mode, `ymdToLocalDate`) per row.
+const RELATIVE_LABELS: RelativeLabels = {
+  today: "Today",
+  yesterday: "Yesterday",
+  thisWeek: "This week",
+  thisMonth: "This month",
+  older: "Older",
+  none: "No date",
+};
+const NOW = new Date(2026, 8, 21);
+const exactDates = (raw: unknown) =>
+  dateGroupValue(raw, "exact", NOW, RELATIVE_LABELS);
+const relativeDates = (raw: unknown) =>
+  dateGroupValue(raw, "relative", NOW, RELATIVE_LABELS);
 const layout = buildColumnLayout(layoutInput, frozen);
 const grouped: FlatItem[] = buildFlatItems(wrapped, FIELD.enum, "asc");
 const firstHeader = grouped.find((i: FlatItem) => i.type === "group-header");
@@ -107,8 +131,24 @@ group("group", () => {
         );
       });
 
-      bench("buildFlatItems, grouped by date", () => {
+      bench("grouped by date, default String() resolver", () => {
         do_not_optimize(buildFlatItems(wrapped, FIELD.date, "asc").length);
+      });
+
+      bench("grouped by date, dateGroupValue exact", () => {
+        do_not_optimize(
+          buildFlatItems(wrapped, FIELD.date, "asc", undefined, exactDates)
+            .length,
+        );
+      });
+
+      bench("grouped by date, dateGroupValue relative", () => {
+        // The only case that parses a date per row: toYmd, then
+        // ymdToLocalDate inside relativeBucket.
+        do_not_optimize(
+          buildFlatItems(wrapped, FIELD.date, "asc", undefined, relativeDates)
+            .length,
+        );
       });
 
       bench("buildRowPositionsByIndex", () => {
