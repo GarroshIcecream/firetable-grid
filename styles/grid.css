@@ -116,11 +116,19 @@
   position: sticky;
   left: 0;
 }
+/* The toggle is a flex button, so it is block-level: without this row the
+ * group's checkbox sits on a line of its own above the label and the header
+ * ends up twice the height of a row. */
+.ftg-group-cell {
+  display: flex;
+  align-items: center;
+}
 .ftg-group-toggle {
   display: flex;
   align-items: center;
   gap: 8px;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   padding: 6px 12px;
   border: 0;
   background: none;
@@ -144,8 +152,14 @@
 .ftg-grid th[data-column-id="__select__"] {
   text-align: center;
 }
+/* Centred in a box the width of the selection column - which the component
+ * sets inline, from the same constant the column itself is built from - so a
+ * group's checkbox lines up with the row checkboxes underneath it. */
 .ftg-group-select {
-  margin-right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
 }
 
 /* Footer ------------------------------------------------------------------ */

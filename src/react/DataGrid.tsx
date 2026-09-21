@@ -47,6 +47,7 @@ import {
   ROW_INDEX_TEXT_CLASS,
   reachedEndOfRows,
   SELECTION_COLUMN_ID,
+  SELECTION_COLUMN_WIDTH,
   type VirtualRangeItem,
 } from "../layout";
 import {
@@ -739,39 +740,54 @@ export function DataGrid<TData extends RowData>({
                 return (
                   <tr key={`h:${item.key}`} className="ftg-group-row">
                     <td colSpan={layout.length}>
-                      {selectable
-                        ? (() => {
-                            const ids = groupRowIds(item.key);
-                            const state = selectionStateOf(selected, ids);
-                            return (
-                              <span className="ftg-group-select">
-                                {renderCheckbox({
-                                  checked: state === "all",
-                                  indeterminate: state === "some",
-                                  label: `Select all rows in ${item.label}`,
-                                  onToggle: () => {
-                                    anchorRef.current = null;
-                                    commitSelection(toggleIds(selected, ids));
-                                  },
-                                })}
-                              </span>
-                            );
-                          })()
-                        : null}
-                      <button
-                        type="button"
-                        className="ftg-group-toggle"
-                        aria-expanded={!collapsed.has(item.key)}
-                        onClick={() => toggleGroup(item.key)}
-                      >
-                        <span className="ftg-caret" aria-hidden="true">
-                          {collapsed.has(item.key) ? "▸" : "▾"}
-                        </span>
-                        <span>
-                          {item.label === EMPTY_GROUP_KEY ? "—" : item.label}
-                        </span>
-                        <span className="ftg-group-count">{item.count}</span>
-                      </button>
+                      {/* One flex line, because the toggle is a block-level
+                          flex button: left to themselves the checkbox and the
+                          label stack, and a group header twice the height of
+                          a row breaks the fixed-height virtual window too. */}
+                      <div className="ftg-group-cell">
+                        {selectable
+                          ? (() => {
+                              const ids = groupRowIds(item.key);
+                              const state = selectionStateOf(selected, ids);
+                              return (
+                                // A group header spans every column, so this
+                                // checkbox has no selection cell to sit in.
+                                // The width is that cell's, from the engine
+                                // rather than the stylesheet, so the two
+                                // cannot drift and the checkbox lines up with
+                                // the ones down the column beneath it.
+                                <span
+                                  className="ftg-group-select"
+                                  style={{ width: SELECTION_COLUMN_WIDTH }}
+                                >
+                                  {renderCheckbox({
+                                    checked: state === "all",
+                                    indeterminate: state === "some",
+                                    label: `Select all rows in ${item.label}`,
+                                    onToggle: () => {
+                                      anchorRef.current = null;
+                                      commitSelection(toggleIds(selected, ids));
+                                    },
+                                  })}
+                                </span>
+                              );
+                            })()
+                          : null}
+                        <button
+                          type="button"
+                          className="ftg-group-toggle"
+                          aria-expanded={!collapsed.has(item.key)}
+                          onClick={() => toggleGroup(item.key)}
+                        >
+                          <span className="ftg-caret" aria-hidden="true">
+                            {collapsed.has(item.key) ? "▸" : "▾"}
+                          </span>
+                          <span>
+                            {item.label === EMPTY_GROUP_KEY ? "—" : item.label}
+                          </span>
+                          <span className="ftg-group-count">{item.count}</span>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
