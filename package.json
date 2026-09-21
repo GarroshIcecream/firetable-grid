@@ -1,7 +1,7 @@
 {
   "name": "firetable-grid",
   "version": "0.3.0",
-  "description": "Schema-driven filter, sort, group and export engine for TanStack Table \u2014 generic over your row type.",
+  "description": "Schema-driven filter, sort, group and export engine for TanStack Table — generic over your row type.",
   "license": "MIT",
   "type": "module",
   "repository": {
@@ -51,6 +51,7 @@
     "lint": "biome check",
     "format": "biome format --write",
     "demo": "bun demo/build.ts",
+    "bench": "bun bench/index.ts",
     "prepare": "bun run build"
   },
   "dependencies": {
@@ -94,6 +95,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "exceljs": "^4.4.0",
+    "mitata": "^1.0.34",
     "react": "^19",
     "react-dom": "^19",
     "server-only": "^0.0.1",

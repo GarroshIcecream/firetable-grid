@@ -20,7 +20,8 @@
     "examples/**/*.ts",
     "demo/**/*.ts",
     "demo/**/*.tsx",
-    "examples/**/*.tsx"
+    "examples/**/*.tsx",
+    "bench/**/*.ts"
   ],
   "exclude": ["node_modules"]
 }

@@ -318,6 +318,50 @@ It pulls in no UI kit.
 
 Both snippets above live in `examples/` as compiling code — `bun run typecheck` covers them, so a change that breaks the documented API breaks the build.
 
+## Benchmarks
+
+```bash
+bun run bench                 # the default ladder
+bun run bench -- --full       # adds the 300,000 × 200 rung (~2.2 GB, slow)
+bun run bench -- filter       # one file, every rung
+```
+
+The suite runs on [mitata](https://github.com/evanwashere/mitata) over a
+generated inventory table, across a ladder of sizes — 10k to 300k rows, 20 to
+200 columns. Each file × rung runs as its **own process**: a live multi-gigabyte
+heap changes what every later measurement in the same process costs, and
+measuring the ladder in one process reported `applyView` at 686 ms when its real
+cost is 36 ms, because the first measurement after building the dataset was
+paying for a full GC.
+
+Every filter case is measured against a **raw-loop baseline** doing the same
+property reads by hand, because an absolute number means nothing here — see
+below.
+
+### Width costs more than anything the engine does
+
+Filtering 300,000 rows on one numeric column, measured on an M2:
+
+| | 20 columns | 200 columns |
+|---|---|---|
+| raw `for` loop, no library | 0.78 ms | ~36 ms |
+| `applyView` | 3.06 ms | ~36 ms |
+
+At 200 columns the engine costs the same as a hand-written loop — the compiled
+predicate is free relative to the data access. What dominates is **reading one
+property out of a wide row**: at 200 columns each row's storage is ~1.6 KB, so
+300k rows scatter ~480 MB across memory and every row costs a cache miss. That
+is inherent to row-oriented objects, not something a filter engine can optimise
+away.
+
+So if you have a wide table and filtering feels slow, the engine is not where
+the time goes. The practical lever is narrowing the rows you hand it, not
+tuning the filter.
+
+The engine's own overhead is about **2.3 ms per 300k rows** over a raw loop —
+roughly 4 ns/row for the closure indirection and the output array — and it is
+constant, not width-dependent.
+
 ## Demo
 
 `demo/index.html` is a prebuilt, self-contained page — open it straight from a
@@ -340,9 +384,10 @@ holds the placeholders; it is not a page you can open.
 
 ```bash
 bun install
-bun test          # 328 tests
+bun test          # 419 tests
 bun run typecheck
 bun run lint
+bun run bench     # performance suite (see Benchmarks above)
 ```
 
 ## License
