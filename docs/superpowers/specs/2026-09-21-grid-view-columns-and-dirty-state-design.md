@@ -46,10 +46,20 @@ A and B ship together because B cannot be built or tested without A.
    `selectExportColumns` and `buildFooterAggregateQuery` all read that shape.
    Changing it is a second migration for no behavioural gain; the
    `undefined`/`false` ambiguity is handled in the diff instead.
-4. **Deep-equal is vendored, not depended on.** The package has zero runtime
-   dependencies and `entry-points.test.ts` polices that. FireTable uses
-   `dequal`; we write ~25 lines internally rather than add a dependency for one
-   function.
+4. **Deep-equal comes from `dequal`.** `dequal@2.0.3` — MIT, zero dependencies
+   of its own, proper ESM exports map, and the same library FireTable already
+   compares saved views with.
+
+   This reverses an earlier decision to hand-write the function, which rested
+   on a claim that did not survive checking: `entry-points.test.ts` does **not**
+   police the dependency surface in general. It checks three named heavy
+   optional peers (`zod`, `exceljs`, `server-only`) and `node:` builtins, none
+   of which `dequal` is. It becomes the package's first and only entry under
+   `dependencies`.
+
+   Adding a dependency does introduce one new failure mode the repo has no
+   guard for — importing a bare specifier that nothing declares. A test is
+   added for that (see Testing).
 5. **Selection is not part of `GridView`** (relevant to the later spec):
    ephemeral, like `collapsedGroups`.
 6. **Render-prop escape hatches** for any new UI (later specs). The package
@@ -149,8 +159,7 @@ fewer columns is out of scope.
 
 ## B. Dirty diffing
 
-New module `src/view-diff.ts`, with the vendored structural equal kept private
-to it.
+New module `src/view-diff.ts`, comparing through `dequal`.
 
 ```ts
 export type ViewField = "search" | "filter" | "sort" | "group" | "columns";
@@ -174,7 +183,7 @@ lighting up a dot; `isViewDirty` is the boolean shorthand over it.
 |---|---|
 | A key **absent from `baseline`** is not compared. Presence is tested with `in`, not `!== undefined`. | A preset view stores no column layout; comparing against one flags every preset dirty the moment it loads. Likewise a view saved before a field existed. |
 | `filter: null` and `group: null` **present** in the baseline **are** compared. | `null` means "explicitly unfiltered" and must be distinguishable from "untracked" — which is exactly why presence is `in` and not a value check. |
-| Structural deep-equal, never `JSON.stringify`. | Postgres `jsonb` does not preserve object key order. A view round-tripped through the database comes back reordered, and a stringify comparison reports a spurious diff after every save. |
+| Structural deep-equal (`dequal`), never `JSON.stringify`. | Postgres `jsonb` does not preserve object key order. A view round-tripped through the database comes back reordered, and a stringify comparison reports a spurious diff after every save. |
 | `columns.pinned` compares as a **set**. | Pin order is not meaningful; comparing arrays flags a reordered-but-identical pin list dirty. |
 | `columns.visibility` compares **hidden id sets**, so absent and `true` agree. | `{}`, `{a: true}` and a record rebuilt by a column manager all describe the same visible set; comparing records directly flags them different. |
 | `columns.sizes` treats `undefined` and `{}` as equal. | A view that has never been resized stores `undefined`; the live grid holds `{}`. |
@@ -188,7 +197,8 @@ correct: a view that stores no state cannot diverge from one.
 | File | Change |
 |---|---|
 | `src/grid-view.ts` | `ColumnLayoutState`, `GridView.columns`, `hiddenColumnIds`, updated `isGridViewEmpty` |
-| `src/view-diff.ts` | new — `diffView`, `isViewDirty`, private `deepEqual` |
+| `src/view-diff.ts` | new — `diffView`, `isViewDirty` |
+| `package.json` | `dependencies: { dequal }` — the package's first |
 | `src/index.ts` | export `./view-diff` |
 | `src/react/DataGrid.tsx` | drop five props, read/write `view.columns`, wire `resolvePinnedColumns` for both `pinned` and `locked` |
 | `examples/grid.tsx` | controlled example uses one view |
@@ -221,6 +231,12 @@ rule exists from the failure message. Specifically:
 `tests/grid-view.test.ts` extends the existing JSON round-trip to a view
 carrying `columns`, and asserts `isGridViewEmpty` stays true for a view whose
 `visibility` record contains only `true` entries.
+
+`tests/entry-points.test.ts` gains one test for the new failure mode a
+dependency introduces: every bare specifier reachable from `src/` must be
+declared in `dependencies` or `peerDependencies`. An undeclared import resolves
+fine in this repo through bun's hoisting and then fails in a consumer's
+install — the same class of bug that made `@tanstack/table-core` a peer.
 
 ## Out of scope
 

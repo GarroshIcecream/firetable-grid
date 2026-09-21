@@ -4,15 +4,15 @@
 
 **Goal:** Move column layout into `GridView` and add a dirty diff that compares a live view against a saved baseline.
 
-**Architecture:** `GridView` gains an optional `columns` object (order, visibility, sizes, pinned), each field independently optional so "this view does not track that" is expressible in the type. A new `view-diff` module compares a live view against a `Partial<GridView>` baseline using a vendored structural equal. A new `view-columns` module resolves a view's layout against a column schema as pure functions, which `DataGrid` then consumes in place of five removed props.
+**Architecture:** `GridView` gains an optional `columns` object (order, visibility, sizes, pinned), each field independently optional so "this view does not track that" is expressible in the type. A new `view-diff` module compares a live view against a `Partial<GridView>` baseline using `dequal`. A new `view-columns` module resolves a view's layout against a column schema as pure functions, which `DataGrid` then consumes in place of five removed props.
 
-**Tech Stack:** TypeScript 6, React 19 (peer), bun test, biome, tsup. Zero runtime dependencies — this is enforced by `tests/entry-points.test.ts` and must stay true.
+**Tech Stack:** TypeScript 6, React 19 (peer), bun test, biome, tsup, `dequal` (the one runtime dependency, added here).
 
 **Spec:** `docs/superpowers/specs/2026-09-21-grid-view-columns-and-dirty-state-design.md`
 
 ## Global Constraints
 
-- **Zero runtime dependencies.** The package has no `dependencies` key. Do not add one. The structural equal is vendored (~25 lines), private to `src/view-diff.ts`.
+- **One runtime dependency, `dequal@^2.0.3`** — MIT, itself dependency-free, added in Task 2 as the package's first and only `dependencies` entry. Do not add a second without asking. `tests/entry-points.test.ts` continues to guarantee the heavy optional peers (`zod`, `exceljs`, `server-only`) stay unreachable from the package root, and Task 2 extends it to catch undeclared imports.
 - **No backward-compatibility shims.** Removed props and types are deleted outright, not deprecated. This was decided for 0.2.0 and continues here.
 - **Every public export carries a doc comment explaining *why*, not what.** Match the density of the surrounding files — see `src/filter-engine.ts` and `src/grid-view.ts`.
 - **Comments explain the bug a rule prevents, not the mechanism.** This codebase's comments are its main asset; a rule with no recorded reason gets "simplified" away later.
@@ -28,7 +28,7 @@
 | File | Responsibility |
 |---|---|
 | `src/grid-view.ts` (modify) | The view type and its constructors. Gains `ColumnLayoutState`, `GridView.columns`, `hiddenColumnIds`, `isColumnLayoutEmpty`. Stays type-and-constructor only. |
-| `src/view-diff.ts` (create) | Comparing a live view to a saved baseline. Owns the vendored `deepEqual` privately. |
+| `src/view-diff.ts` (create) | Comparing a live view to a saved baseline. |
 | `src/view-columns.ts` (create) | Resolving a view's column layout against a column schema — order, visibility filtering, pin resolution. Pure, so `DataGrid` keeps no layout logic of its own. |
 | `src/react/DataGrid.tsx` (modify) | Loses five props and both pieces of own column state; consumes the two new modules. |
 | `src/index.ts` (modify) | Barrel exports for the two new modules. |
@@ -234,10 +234,12 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 **Files:**
 - Create: `src/view-diff.ts`
 - Modify: `src/index.ts`
+- Modify: `package.json` (add `dependencies`)
+- Modify: `tests/entry-points.test.ts` (undeclared-import guard)
 - Test: `tests/view-diff.test.ts`
 
 **Interfaces:**
-- Consumes: `GridView`, `ColumnLayoutState`, `hiddenColumnIds` from Task 1.
+- Consumes: `GridView`, `ColumnLayoutState`, `hiddenColumnIds` from Task 1; `dequal` from npm.
 - Produces:
   - `type ViewField = "search" | "filter" | "sort" | "group" | "columns"`
   - `interface ViewDiff { dirty: boolean; changed: ViewField[] }`
@@ -439,6 +441,11 @@ Expected: FAIL — `diffView` / `isViewDirty` are not exported from `../src`.
 // commented with the bug rather than the mechanism. Without that, a rule like
 // "compare structurally, never by JSON.stringify" reads as a pointless
 // indirection and gets simplified away by the next reader.
+//
+// `dequal` is this package's only runtime dependency - MIT, dependency-free,
+// and the same comparison FireTable's saved views already use.
+
+import { dequal } from "dequal";
 
 import {
   type ColumnLayoutState,
@@ -453,43 +460,6 @@ export interface ViewDiff {
   /** Which top-level fields diverge, in `GridView` declaration order. A UI can
    *  say "sort and columns changed" instead of only lighting up a dot. */
   changed: ViewField[];
-}
-
-/**
- * Structural equality, vendored rather than depended on.
- *
- * This package has zero runtime dependencies and a test that keeps it that
- * way; adding one for a single function is a bad trade. Only what a `GridView`
- * can hold is supported - primitives, plain objects and arrays. No Dates, Maps
- * or Sets, because a view has to survive `JSON.stringify` and those do not.
- */
-function deepEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (a === null || b === null) return false;
-  if (typeof a !== "object" || typeof b !== "object") return false;
-
-  const aIsArray = Array.isArray(a);
-  if (aIsArray !== Array.isArray(b)) return false;
-
-  if (aIsArray) {
-    const x = a as unknown[];
-    const y = b as unknown[];
-    if (x.length !== y.length) return false;
-    for (let i = 0; i < x.length; i++) {
-      if (!deepEqual(x[i], y[i])) return false;
-    }
-    return true;
-  }
-
-  const x = a as Record<string, unknown>;
-  const y = b as Record<string, unknown>;
-  const keys = Object.keys(x);
-  if (keys.length !== Object.keys(y).length) return false;
-  for (const key of keys) {
-    if (!Object.hasOwn(y, key)) return false;
-    if (!deepEqual(x[key], y[key])) return false;
-  }
-  return true;
 }
 
 /** Order-insensitive comparison of two id collections. */
@@ -513,7 +483,7 @@ function columnsDiffer(
   const base = baseline ?? {};
   const live = current ?? {};
 
-  if ("order" in base && !deepEqual(live.order ?? [], base.order ?? [])) {
+  if ("order" in base && !dequal(live.order ?? [], base.order ?? [])) {
     return true;
   }
   if (
@@ -526,7 +496,7 @@ function columnsDiffer(
     return true;
   }
   // A view that has never been resized stores nothing; the live grid holds {}.
-  if ("sizes" in base && !deepEqual(live.sizes ?? {}, base.sizes ?? {})) {
+  if ("sizes" in base && !dequal(live.sizes ?? {}, base.sizes ?? {})) {
     return true;
   }
   // Pin order is not meaningful, so a reordered but identical list is clean.
@@ -558,13 +528,13 @@ export function diffView(
   if ("search" in baseline && current.search !== baseline.search) {
     changed.push("search");
   }
-  if ("filter" in baseline && !deepEqual(current.filter, baseline.filter)) {
+  if ("filter" in baseline && !dequal(current.filter, baseline.filter)) {
     changed.push("filter");
   }
-  if ("sort" in baseline && !deepEqual(current.sort, baseline.sort)) {
+  if ("sort" in baseline && !dequal(current.sort, baseline.sort)) {
     changed.push("sort");
   }
-  if ("group" in baseline && !deepEqual(current.group, baseline.group)) {
+  if ("group" in baseline && !dequal(current.group, baseline.group)) {
     changed.push("group");
   }
   if ("columns" in baseline && columnsDiffer(current.columns, baseline.columns)) {
@@ -583,7 +553,68 @@ export function isViewDirty(
 }
 ```
 
-- [ ] **Step 4: Export it from the barrel**
+- [ ] **Step 4: Declare and install the dependency**
+
+Add to `package.json`, directly above `"peerDependencies"` — this is the
+package's first `dependencies` entry:
+
+```json
+  "dependencies": {
+    "dequal": "^2.0.3"
+  },
+```
+
+Run: `bun install`
+Expected: `dequal` installed; `bun.lock` updated. Both files are committed.
+
+- [ ] **Step 5: Guard against undeclared imports**
+
+Adding a dependency creates a failure mode this repo has no test for: a bare
+specifier that resolves locally through bun's hoisting but is declared nowhere,
+so a consumer's install has no such package. That is the bug that made
+`@tanstack/table-core` a peer. Append to `tests/entry-points.test.ts`:
+
+```ts
+describe("every package a source file imports is declared", () => {
+  test("no entry point reaches an undeclared bare specifier", () => {
+    // A specifier that resolves here through bun's hoisting but appears in
+    // neither `dependencies` nor `peerDependencies` installs fine in this repo
+    // and is missing in a consumer's - which is how `@tanstack/table-core`
+    // shipped broken before it was made a peer.
+    const pkg = JSON.parse(
+      readFileSync(resolve(import.meta.dir, "../package.json"), "utf8"),
+    );
+    const declared = new Set([
+      ...Object.keys(pkg.dependencies ?? {}),
+      ...Object.keys(pkg.peerDependencies ?? {}),
+    ]);
+    const entries = [
+      "index.ts",
+      "schema.ts",
+      "server.ts",
+      "layout/index.ts",
+      "react/index.ts",
+    ];
+
+    const undeclared = new Set<string>();
+    for (const entry of entries) {
+      for (const [specifier, culprit] of reachableBarePackages(
+        join(SRC, entry),
+      )) {
+        if (specifier.startsWith("node:")) continue;
+        // "@scope/name/sub" -> "@scope/name";  "name/sub" -> "name"
+        const name = specifier.startsWith("@")
+          ? specifier.split("/").slice(0, 2).join("/")
+          : (specifier.split("/")[0] as string);
+        if (!declared.has(name)) undeclared.add(`${name} (src/${culprit})`);
+      }
+    }
+    expect([...undeclared]).toEqual([]);
+  });
+});
+```
+
+- [ ] **Step 6: Export it from the barrel**
 
 In `src/index.ts`, add after the `export * from "./threshold";` line, keeping the list alphabetical:
 
@@ -591,20 +622,21 @@ In `src/index.ts`, add after the `export * from "./threshold";` line, keeping th
 export * from "./view-diff";
 ```
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [ ] **Step 7: Run the tests to verify they pass**
 
 Run: `bun test tests/view-diff.test.ts && bun run typecheck && bun run lint`
 Expected: all PASS.
 
-- [ ] **Step 6: Confirm no dependency crept in**
+- [ ] **Step 8: Confirm the dependency surface is still what we think**
 
 Run: `bun test tests/entry-points.test.ts`
-Expected: PASS — proves `view-diff` pulled in no package.
+Expected: PASS — `dequal` is declared, and the three heavy optional peers are
+still unreachable from the package root.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add src/view-diff.ts src/index.ts tests/view-diff.test.ts
+git add src/view-diff.ts src/index.ts tests/view-diff.test.ts tests/entry-points.test.ts package.json bun.lock
 git commit -m "feat(view): diff a live view against its saved baseline
 
 \`diffView\` answers \"does this view have unsaved changes?\", and names which
@@ -621,8 +653,13 @@ key order, so a view round-tripped through the database comes back rearranged
 and a stringify comparison reports a spurious diff after every save. Pins and
 visibility compare as sets, since neither has meaningful order.
 
-The structural equal is vendored - ~25 lines against a runtime dependency in a
-package that has none, and a test that keeps it that way.
+Comparison goes through \`dequal\` - MIT, dependency-free, and the same library
+FireTable already compares saved views with. It is this package's first
+runtime dependency, so entry-points gains a test that every bare specifier a
+source file imports is actually declared: one that resolves here through bun's
+hoisting but is declared nowhere installs fine in this repo and is missing in
+a consumer's, which is how \`@tanstack/table-core\` shipped broken before it was
+made a peer.
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
@@ -1211,6 +1248,14 @@ component is reachable only through `typecheck`. Extracting makes the fallback
 rule that matters most — a layout with no visibility record falls back to the
 *schema's* `visible` flags, not to "everything visible" — an actual test. This
 adds one file to the spec's list.
+
+**Second deviation, recorded here.** Decision 4 of the spec originally had the
+structural equal hand-written. It now uses `dequal`, and the spec records why
+the original reasoning did not survive checking: `entry-points.test.ts` guards
+three named heavy optional peers and `node:` builtins, not the dependency
+surface in general. Task 2 gains the install step and a new test closing the
+one gap a dependency actually opens — an imported package that nothing
+declares.
 
 **Placeholder scan.** No "TBD", "TODO", "handle edge cases", or "similar to Task
 N". Every code step carries the real code.
