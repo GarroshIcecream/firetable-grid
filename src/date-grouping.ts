@@ -93,30 +93,75 @@ export function isYmd(value: string): boolean {
 // Bucket index (0 = most recent) for relative grouping, computed in local time
 // against `now`. Used as the sort key so buckets order by recency, not
 // alphabetically by label.
+/**
+ * Days since 1970-01-01 for a civil (proleptic Gregorian) date - Howard
+ * Hinnant's `days_from_civil`.
+ *
+ * Integer arithmetic, no `Date`, and deliberately no timezone: by the time a
+ * value reaches here `toYmd` has already resolved the module's one rule - a
+ * value's calendar day is its LOCAL day - so what is left is pure calendar
+ * counting. Comparing day NUMBERS also removes the `Math.round` the previous
+ * version needed: local midnights either side of a DST transition are not
+ * 86,400,000 ms apart, and dividing by that had to round back to a whole day.
+ */
+function civilDayNumber(year: number, month: number, day: number): number {
+  const y = month <= 2 ? year - 1 : year;
+  const era = Math.floor(y / 400);
+  const yoe = y - era * 400;
+  const mp = (month + 9) % 12; // March = 0 … February = 11
+  const doy = Math.floor((153 * mp + 2) / 5) + day - 1;
+  const doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy;
+  return era * 146097 + doe - 719468;
+}
+
 function relativeBucket(ymd: string, now: Date): number {
-  const date = ymdToLocalDate(ymd);
-  if (!date) return 4;
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const dayMs = 86_400_000;
-  const diffDays = Math.round((today.getTime() - date.getTime()) / dayMs);
+  if (!isYmd(ymd)) return 4;
+  // Digit arithmetic rather than `split("-").map(Number)`: `isYmd` has already
+  // proved every character, and this is the per-row path.
+  const year =
+    (ymd.charCodeAt(0) - ZERO) * 1000 +
+    (ymd.charCodeAt(1) - ZERO) * 100 +
+    (ymd.charCodeAt(2) - ZERO) * 10 +
+    (ymd.charCodeAt(3) - ZERO);
+  const month = (ymd.charCodeAt(5) - ZERO) * 10 + (ymd.charCodeAt(6) - ZERO);
+  const day = (ymd.charCodeAt(8) - ZERO) * 10 + (ymd.charCodeAt(9) - ZERO);
+
+  const nowYear = now.getFullYear();
+  const nowMonth = now.getMonth() + 1;
+  const rowDays = civilDayNumber(year, month, day);
+  const todayDays = civilDayNumber(nowYear, nowMonth, now.getDate());
+
+  const diffDays = todayDays - rowDays;
   if (diffDays === 0) return 0;
   if (diffDays === 1) return 1;
-  // Monday-based week containing today.
-  const dow = (today.getDay() + 6) % 7; // 0 = Mon … 6 = Sun
-  const weekStart = new Date(today.getTime() - dow * dayMs);
-  if (
-    date.getTime() >= weekStart.getTime() &&
-    date.getTime() <= today.getTime()
-  ) {
-    return 2;
-  }
-  if (
-    date.getFullYear() === today.getFullYear() &&
-    date.getMonth() === today.getMonth()
-  ) {
-    return 3;
-  }
+  // Monday-based week containing today. `now.getDay()` is the same weekday as
+  // local midnight of the same day, so the week start needs no Date either.
+  const dow = (now.getDay() + 6) % 7; // 0 = Mon … 6 = Sun
+  if (rowDays >= todayDays - dow && rowDays <= todayDays) return 2;
+  if (year === nowYear && month === nowMonth) return 3;
   return 4;
+}
+
+/** Sort keys for the five relative buckets. Module-level so the per-row path
+ *  does not call `String(bucket)` for one of five known answers. */
+const RELATIVE_SORT_KEYS = ["0", "1", "2", "3", "4"] as const;
+
+/** Sorts after every real day, so undated rows group last. */
+const NONE_SORT_KEY = "\uffff";
+
+function relativeLabel(labels: RelativeLabels, bucket: number): string {
+  switch (bucket) {
+    case 0:
+      return labels.today;
+    case 1:
+      return labels.yesterday;
+    case 2:
+      return labels.thisWeek;
+    case 3:
+      return labels.thisMonth;
+    default:
+      return labels.older;
+  }
 }
 
 // Resolve a row's raw date value into a { sortKey, label } pair for grouping.
@@ -129,15 +174,13 @@ export function dateGroupValue(
   labels: RelativeLabels,
 ): { sortKey: string; label: string } {
   const ymd = toYmd(raw);
-  if (!ymd) return { sortKey: "￿", label: labels.none };
+  if (!ymd) return { sortKey: NONE_SORT_KEY, label: labels.none };
   if (mode === "exact") return { sortKey: ymd, label: ymd };
+  // Neither a lookup array nor a `String()` call per row - see
+  // `RELATIVE_SORT_KEYS` and `relativeLabel`.
   const bucket = relativeBucket(ymd, now);
-  const labelByBucket = [
-    labels.today,
-    labels.yesterday,
-    labels.thisWeek,
-    labels.thisMonth,
-    labels.older,
-  ];
-  return { sortKey: String(bucket), label: labelByBucket[bucket] };
+  return {
+    sortKey: RELATIVE_SORT_KEYS[bucket],
+    label: relativeLabel(labels, bucket),
+  };
 }

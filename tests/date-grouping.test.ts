@@ -112,4 +112,60 @@ describe("dateGroupValue — relative mode", () => {
   test("sortKeys order Today before Older regardless of label spelling", () => {
     expect(v("2026-06-24").sortKey < v("2026-03-15").sortKey).toBe(true);
   });
+
+  // `relativeBucket` allocated three Dates per row, two of them invariant
+  // across rows. These pin every boundary before that is rewritten as integer
+  // day arithmetic, so the rewrite is provably behaviour-preserving rather
+  // than merely green - the two tests above did not cover a single edge.
+  test("the week boundary is Monday-based and inclusive of Monday", () => {
+    // now is Wed 24 Jun 2026, so this week starts Mon 22 Jun.
+    expect(v("2026-06-22").sortKey).toBe("2"); // Monday — in the week
+    expect(v("2026-06-21").sortKey).toBe("3"); // Sunday — same month, not week
+  });
+
+  test("a day before this month's start is Older, not This month", () => {
+    expect(v("2026-06-01").sortKey).toBe("3"); // first of this month
+    expect(v("2026-05-31").sortKey).toBe("4"); // previous month
+  });
+
+  test("a FUTURE date is not Today, Yesterday or This week", () => {
+    // diffDays goes negative; the original fell through every window to Older
+    // except that a future day in the same month lands in This month.
+    expect(v("2026-06-25").sortKey).toBe("3"); // tomorrow, same month
+    expect(v("2026-07-01").sortKey).toBe("4"); // next month
+  });
+
+  test("a date in the same month of a DIFFERENT year is Older", () => {
+    expect(v("2025-06-24").sortKey).toBe("4");
+  });
+
+  test("an unparseable or missing value is the none group, not a bucket", () => {
+    expect(v("not a date")).toEqual({ sortKey: "\uffff", label: LABELS.none });
+    expect(dateGroupValue(null, rel, now, LABELS).sortKey).toBe("\uffff");
+  });
+
+  test("a datetime collapses to its literal day before bucketing", () => {
+    expect(v("2026-06-23T22:15:00.000Z").sortKey).toBe("1");
+  });
+
+  test("buckets hold across a spring-forward DST boundary", () => {
+    // Local midnights either side of a transition are not 86_400_000 ms apart,
+    // which is what the original's ms-division-and-round had to absorb.
+    const march = new Date(2026, 2, 30); // Mon 30 Mar 2026, after EU DST start
+    const w = (d: string) => dateGroupValue(d, rel, march, LABELS).sortKey;
+    expect(w("2026-03-30")).toBe("0"); // today
+    expect(w("2026-03-29")).toBe("1"); // yesterday — the transition day
+    expect(w("2026-03-28")).toBe("3"); // Sat, previous week, same month
+  });
+
+  test("every day of a month lands in exactly one bucket", () => {
+    const keys = new Set<string>();
+    for (let day = 1; day <= 30; day++) {
+      const key = v(`2026-06-${String(day).padStart(2, "0")}`).sortKey;
+      expect(["0", "1", "2", "3", "4"]).toContain(key);
+      keys.add(key);
+    }
+    // Today, Yesterday, This week, This month all occur in June 2026.
+    expect(keys.size).toBeGreaterThanOrEqual(4);
+  });
 });
