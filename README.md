@@ -38,9 +38,9 @@ const columnDefs = toColumnDefs(columns);
 
 ## The view
 
-Everything a user can do to a table — search, filter, sort, group — is one
-serializable object, one field each. That is what makes a saved view a piece of
-JSON rather than four things you have to reassemble:
+Everything a user can do to a table — search, filter, sort, group, and the
+column layout — is one serializable object, one field each. That is what makes a
+saved view a piece of JSON rather than five things you have to reassemble:
 
 ```ts
 import { all, any, applyView, type GridView, where } from "firetable-grid";
@@ -53,6 +53,7 @@ const view: GridView = {
   ),
   sort: [{ field: "price", dir: "asc" }],
   group: { field: "fuel" },
+  columns: { order: ["name", "price"], pinned: ["name"], sizes: { price: 160 } },
 };
 
 const visible = applyView(rows, view, columns);   // search + filter
@@ -64,6 +65,29 @@ every call, so building one up by mutation can never reach into another view.
 
 A view is plain JSON with no functions in it: `JSON.stringify(view)` is the
 whole of persisting one.
+
+Every field of `columns` is optional — including `columns` itself. Absent means
+*this view does not track that*, which is a real state: a preset view stores no
+layout, and loading it leaves the current columns alone.
+
+### Unsaved changes
+
+`diffView(current, baseline)` answers "does this view have unsaved changes?",
+and names which fields moved so a UI can say more than yes:
+
+```ts
+const { dirty, changed } = diffView(view, savedView);  // changed: ["sort", "columns"]
+```
+
+`baseline` is a `Partial<GridView>`: **a key it does not carry is not
+compared**. That is what stops a preset view — which stores no column layout —
+flagging dirty the moment it loads. Presence is tested with `in`, so
+`filter: null` ("explicitly unfiltered") stays distinguishable from an absent
+`filter` ("not tracked"). `isViewDirty` is the boolean shorthand.
+
+Comparison is structural rather than `JSON.stringify`, because a view stored in
+Postgres `jsonb` comes back with its keys reordered; pins and visibility compare
+as sets, since neither has meaningful order.
 
 ### Filtering
 
@@ -156,18 +180,15 @@ import "firetable-grid/styles/grid.css";
 />;
 ```
 
-That is the whole minimal call — the view, order, sizes and collapsed groups are
-uncontrolled until you pass them, so sorting and resizing work with no wiring.
-Pass any of them with its `on…Change` partner to take control and persist it:
+That is the whole minimal call — the view and collapsed groups are uncontrolled
+until you pass them, so sorting and resizing work with no wiring. Pass either
+with its `on…Change` partner to take control and persist it:
 
 ```tsx
 <DataGrid
   rows={rows} columns={columns} renderCell={renderCell}
   getRowId={(row) => row.id}                     // stable row identity
-  view={view} onViewChange={setView}             // search + filter + sort + group
-  columnOrder={order} onColumnOrderChange={setOrder}
-  columnSizes={sizes} onColumnSizesChange={setSizes}
-  columnVisibility={visibility}                  // read-only: your manager owns it
+  view={view} onViewChange={setView}             // search, filter, sort, group, columns
   reorderable                                    // opt in to drag-to-reorder
   categoryOf={(id) => CATEGORY[id]}              // optional: confine a drag
 />;
@@ -282,7 +303,9 @@ It pulls in no UI kit.
 
 | | |
 |---|---|
-| `grid-view` | `GridView` — search, filter, sort and grouping in one serializable object |
+| `grid-view` | `GridView` — search, filter, sort, grouping and column layout in one serializable object |
+| `view-diff` | `diffView` / `isViewDirty` — does this view have unsaved changes, and which fields moved |
+| `view-columns` | resolving a view's column layout against a schema: order, visibility, pins |
 | `sorting-state` | multi-column sort state, capped and normalized, plus the only two functions that know TanStack's sort shape |
 | `date-grouping` | group dates by day/week/month/quarter/year, with injectable relative labels. A value's calendar day is always the **local** one — a string contributes its literal `YYYY-MM-DD` prefix, a `Date` its local day — so filtering, grouping and both export formats agree on which day a row falls on |
 | `threshold` | value→colour bands, zod-free so cell renderers can import the resolvers |
