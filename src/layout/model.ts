@@ -282,10 +282,20 @@ export function pendingRowRunway({
  * exceeded` somewhere past ~125k arguments, so a min/max footer used to crash
  * the grid on exactly the datasets big enough to want one.
  */
+/**
+ * Aggregates one column over the loaded rows.
+ *
+ * `read` exists because `colId` is a COLUMN id, which is not always the key
+ * the value lives under - a column declaring `accessorKey` or
+ * `getFilterValue` reads somewhere else entirely, and indexing the row by its
+ * id silently aggregated those to `null`. Pass the column's own accessor and
+ * the footer agrees with the cells above it.
+ */
 export function computeRowsAgg<TData>(
   rows: readonly { original: TData }[],
   colId: string,
   aggType: AggregationType,
+  read?: (row: TData) => unknown,
 ): number | null {
   let count = 0;
   let sum = 0;
@@ -293,7 +303,9 @@ export function computeRowsAgg<TData>(
   let max = Number.NEGATIVE_INFINITY;
 
   for (const row of rows) {
-    const value = (row.original as Record<string, unknown>)[colId];
+    const value = read
+      ? read(row.original)
+      : (row.original as Record<string, unknown>)[colId];
     if (typeof value !== "number") continue;
     count++;
     sum += value;

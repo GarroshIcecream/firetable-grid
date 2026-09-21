@@ -135,3 +135,27 @@
   padding: 24px 12px;
   text-align: center;
 }
+
+/* Selection --------------------------------------------------------------- */
+/* The checkbox column is narrow, so its cell centres rather than left-aligns
+ * like every other. Colour for a selected row is deliberately absent: it has
+ * to sit against your own palette, so set `.ftg-row-selected` yourself. */
+.ftg-grid td[data-column-id="__select__"],
+.ftg-grid th[data-column-id="__select__"] {
+  text-align: center;
+}
+.ftg-group-select {
+  margin-right: 8px;
+}
+
+/* Footer ------------------------------------------------------------------ */
+/* Sticky to the bottom of the scroll frame, and above the body's frozen cells
+ * (z-10 from the engine) for the same reason the header is. */
+.ftg-grid tfoot td {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+}
+.ftg-grid tfoot td.sticky {
+  z-index: 30;
+}

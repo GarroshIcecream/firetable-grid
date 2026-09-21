@@ -7,7 +7,7 @@
 import { StrictMode, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  AGG_SYMBOLS,
+  type AggregationType,
   all,
   applyView,
   buildCsvString,
@@ -19,7 +19,6 @@ import {
   type FilterCondition,
   type FilterNode,
   type FilterOp,
-  formatFooterAggregate,
   type GridView,
   isColumnVisible,
   resolveThresholdColor,
@@ -28,11 +27,7 @@ import {
   thresholdClasses,
   where,
 } from "../src";
-import {
-  buildColumnLayout,
-  buildFlatItems,
-  computeRowsAgg,
-} from "../src/layout";
+import { buildColumnLayout, buildFlatItems } from "../src/layout";
 import { DataGrid } from "../src/react";
 import { buildColumns, buildRows, type Item } from "./data";
 
@@ -160,6 +155,9 @@ function App() {
   // store verbatim.
   const [view, setView] = useState<GridView>(emptyGridView);
   const [wrapCells, setWrapCells] = useState(false);
+  const [selectedRows, setSelectedRows] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [reorderable, setReorderable] = useState(true);
   const [byCategory, setByCategory] = useState(false);
 
@@ -210,6 +208,15 @@ function App() {
     [filtered, groupField],
   );
 
+  // One aggregation per aggregatable column, so the grid's own <tfoot> has
+  // something to show. Previously the demo hand-rolled a footer strip below
+  // the table because the component rendered none.
+  const footerAggs = useMemo(() => {
+    const out: Record<string, AggregationType> = {};
+    for (const c of columns) if (c.type.aggregatable) out[c.id] = "avg";
+    return out;
+  }, []);
+
   const fieldColumn = byId.get(field);
   const addFilter = () => {
     if (!field || !op) return;
@@ -240,7 +247,10 @@ function App() {
   };
 
   // One call now clears filter, sort, grouping AND the column layout.
-  const reset = () => setView(emptyGridView());
+  const reset = () => {
+    setView(emptyGridView());
+    setSelectedRows(new Set());
+  };
 
   return (
     <main className="layout">
@@ -447,32 +457,16 @@ function App() {
           getRowId={(row) => row.sku}
           view={view}
           onViewChange={setView}
+          enableSelection
+          selectedRowIds={selectedRows}
+          onSelectionChange={setSelectedRows}
+          footerAggregations={footerAggs}
+          numberFormatter={formatter}
           reorderable={reorderable}
           categoryOf={byCategory ? categoryOf : undefined}
           wrapCells={wrapCells}
           renderCell={(column, row) => <Cell column={column} row={row} />}
         />
-
-        <div className="footer-aggs">
-          {columns
-            .filter((c) => c.type.aggregatable)
-            .map((c) => (
-              <span key={c.id} className="footer-agg">
-                <span className="agg-label">{c.label}</span>
-                <span className="agg-symbol">{AGG_SYMBOLS.avg}</span>
-                {formatFooterAggregate(
-                  computeRowsAgg(
-                    filtered.map((original) => ({ original })),
-                    c.id,
-                    "avg",
-                  ),
-                  "avg",
-                  c,
-                  formatter,
-                )}
-              </span>
-            ))}
-        </div>
       </div>
 
       <aside className="panel">
@@ -493,6 +487,10 @@ function App() {
           <div className="stat">
             <div className="stat-value">{flatItems.length}</div>
             <div className="stat-key">flat items</div>
+          </div>
+          <div className="stat">
+            <div className="stat-value">{selectedRows.size}</div>
+            <div className="stat-key">selected</div>
           </div>
         </div>
 

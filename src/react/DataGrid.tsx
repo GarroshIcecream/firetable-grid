@@ -4,7 +4,16 @@ import type { RowData } from "@tanstack/react-table";
 import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
 import type { CategoryResolver } from "../column-category-layout";
 import type { SchemaColumn } from "../column-schema";
+import type { AggregationType } from "../column-vocabulary";
 import { applyView } from "../filter-engine";
+import {
+  type FooterAggregateValues,
+  resolveFooterValue,
+} from "../footer-aggregate-value";
+import {
+  formatFooterAggregate,
+  type NumberFormatter,
+} from "../format-footer-aggregate";
 import {
   type ColumnLayoutState,
   emptyGridView,
@@ -18,13 +27,22 @@ import {
   CELL_ALIGNMENT_CLASS,
   type ColumnLayoutEntry,
   cellPaddingClass,
+  computeRowsAgg,
   EMPTY_GROUP_KEY,
   type GroupValueFn,
   groupSortDirection,
   PINNED_EDGE_BORDER,
   PINNED_INNER_EDGE_SHADOW,
   ROW_INDEX_TEXT_CLASS,
+  SELECTION_COLUMN_ID,
 } from "../layout";
+import {
+  resolveSelectionClick,
+  type SelectionState,
+  selectionColumn,
+  selectionStateOf,
+  toggleIds,
+} from "../selection";
 import { sortRowsForExport } from "../sort-rows";
 import { getColumnSort, sortRulesEqual, toggleSort } from "../sorting-state";
 import { resolveColumnOrder, resolveColumnPins } from "../view-columns";
@@ -74,9 +92,77 @@ export interface DataGridProps<TData extends RowData> {
   /** Drag the header edge to resize. On by default. */
   resizable?: boolean;
 
+  /**
+   * Adds a leading checkbox column.
+   *
+   * Requires `getRowId`, and is ignored without it: a selection keyed on row
+   * position follows the wrong rows through a sort or a filter, which is worse
+   * than no selection at all.
+   */
+  enableSelection?: boolean;
+  /** Selected row ids. Uncontrolled when omitted. */
+  selectedRowIds?: ReadonlySet<string>;
+  onSelectionChange?: (selected: Set<string>) => void;
+
+  /**
+   * Which aggregation each column shows in a footer row, by column id. Omit
+   * for no footer. Columns whose type is not `aggregatable` are ignored.
+   */
+  footerAggregations?: Readonly<Record<string, AggregationType>>;
+  /**
+   * Server-computed aggregates, keyed by column id then aggregation. These
+   * WIN over the loaded rows: with paged data the loaded slice drifts from the
+   * real total as pages arrive, so a locally computed sum would understate it.
+   */
+  footerValues?: FooterAggregateValues;
+  /**
+   * Formats footer numbers. Required for a footer to render — the engine holds
+   * no locale, and `next-intl`'s `useFormatter()` satisfies this as-is.
+   */
+  numberFormatter?: NumberFormatter;
+
+  /** Replaces the bare `<input type="checkbox">` the selection column renders.
+   *  The package ships no UI kit, so this is the hook for yours. */
+  renderCheckbox?: (props: {
+    checked: boolean;
+    indeterminate: boolean;
+    label: string;
+    onToggle: () => void;
+  }) => ReactNode;
+  /** Replaces a footer cell's contents. Receives the resolved number, or null
+   *  when there is nothing to show. */
+  renderFooterCell?: (
+    column: SchemaColumn<TData>,
+    value: number | null,
+    aggregation: AggregationType,
+  ) => ReactNode;
+
   wrapCells?: boolean;
   className?: string;
   emptyMessage?: ReactNode;
+}
+
+/** The default checkbox: unstyled on purpose. */
+function defaultCheckbox(props: {
+  checked: boolean;
+  indeterminate: boolean;
+  label: string;
+  onToggle: () => void;
+}): ReactNode {
+  return (
+    <input
+      type="checkbox"
+      aria-label={props.label}
+      checked={props.checked}
+      // `indeterminate` is a DOM property with no React attribute, so the ref
+      // is the only way to reach it.
+      ref={(el) => {
+        if (el) el.indeterminate = props.indeterminate;
+      }}
+      onChange={props.onToggle}
+      onClick={(e) => e.stopPropagation()}
+    />
+  );
 }
 
 function edgeClass<TData extends RowData>(
@@ -93,6 +179,7 @@ function cx(...parts: (string | false | undefined)[]) {
 /** Stable identity for an unsized grid, so the layout memo is not invalidated
  *  by a fresh `{}` on every render. */
 const EMPTY_SIZES: Readonly<Record<string, number>> = {};
+const EMPTY_IDS: readonly string[] = [];
 
 export function DataGrid<TData extends RowData>({
   rows,
@@ -108,6 +195,14 @@ export function DataGrid<TData extends RowData>({
   reorderable = false,
   categoryOf,
   resizable = true,
+  enableSelection = false,
+  selectedRowIds,
+  onSelectionChange,
+  footerAggregations,
+  footerValues,
+  numberFormatter,
+  renderCheckbox = defaultCheckbox,
+  renderFooterCell,
   wrapCells = false,
   className,
   emptyMessage = "No rows match the current filter.",
@@ -120,12 +215,22 @@ export function DataGrid<TData extends RowData>({
   const [ownCollapsed, setOwnCollapsed] = useState<Set<string>>(
     () => new Set(),
   );
+  const [ownSelection, setOwnSelection] = useState<Set<string>>(
+    () => new Set(),
+  );
+  // The range anchor is a ref, not state: it changes on every click and
+  // nothing renders from it, so putting it in state would re-render the whole
+  // grid to store a string.
+  const anchorRef = useRef<string | null>(null);
 
   const activeView = view ?? ownView;
   const groupField = activeView.group?.field ?? "";
   const collapsed = collapsedGroups ?? ownCollapsed;
   const layoutState = activeView.columns;
   const sizes = layoutState?.sizes ?? EMPTY_SIZES;
+  // Selection without stable ids would key on position; see the prop's note.
+  const selectable = enableSelection && getRowId !== undefined;
+  const selected = selectedRowIds ?? ownSelection;
 
   const setView = useCallback(
     (next: GridView) => {
@@ -157,6 +262,14 @@ export function DataGrid<TData extends RowData>({
     [patchColumns, sizes],
   );
 
+  const commitSelection = useCallback(
+    (next: Set<string>) => {
+      if (onSelectionChange) onSelectionChange(next);
+      if (!selectedRowIds) setOwnSelection(next);
+    },
+    [selectedRowIds, onSelectionChange],
+  );
+
   const toggleGroup = useCallback(
     (key: string) => {
       const next = new Set(collapsed);
@@ -168,10 +281,14 @@ export function DataGrid<TData extends RowData>({
     [collapsed, collapsedGroups, onCollapsedGroupsChange],
   );
 
-  const ordered = useMemo(
-    () => resolveColumnOrder(columns, layoutState),
-    [columns, layoutState],
-  );
+  const ordered = useMemo(() => {
+    const visible = resolveColumnOrder(columns, layoutState);
+    // Prepended rather than declared in the schema, so a consumer's column
+    // list stays purely their data and the checkbox cannot be reordered,
+    // hidden or exported by accident. It is `frozen`, so `resolveColumnPins`
+    // picks it up as sticky with no extra wiring.
+    return selectable ? [selectionColumn<TData>(), ...visible] : visible;
+  }, [columns, layoutState, selectable]);
 
   const pins = useMemo(
     () => resolveColumnPins(ordered, layoutState),
@@ -201,9 +318,10 @@ export function DataGrid<TData extends RowData>({
     () =>
       buildCellSpecs<TData, SchemaColumn<TData>>(layout, {
         wrapCells,
+        enableSelection: selectable,
         metaOf: (column) => column,
       }),
-    [layout, wrapCells],
+    [layout, wrapCells, selectable],
   );
 
   // Depend on the two fields that narrow rows, not on the whole view: a header
@@ -231,6 +349,64 @@ export function DataGrid<TData extends RowData>({
   const positions = useMemo(
     () => buildRowPositionsByIndex(flatItems),
     [flatItems],
+  );
+
+  // Ids in RENDERED order, which is what a shift-click range spans. Built from
+  // the flat item list, so a collapsed group's rows are absent and a range
+  // across it selects only what is on screen.
+  const visibleRowIds = useMemo(() => {
+    if (!selectable || !getRowId) return EMPTY_IDS;
+    const ids: string[] = [];
+    for (const item of flatItems) {
+      if (item.type === "row") ids.push(getRowId(sorted[item.rowIndex]));
+    }
+    return ids;
+  }, [selectable, getRowId, flatItems, sorted]);
+
+  /** Row ids under one group header, for its select-all. */
+  const groupRowIds = useCallback(
+    (groupKey: string) => {
+      if (!getRowId) return EMPTY_IDS;
+      const ids: string[] = [];
+      let inGroup = false;
+      for (const item of flatItems) {
+        if (item.type === "group-header") {
+          if (inGroup) break;
+          inGroup = item.key === groupKey;
+          continue;
+        }
+        if (inGroup) ids.push(getRowId(sorted[item.rowIndex]));
+      }
+      return ids;
+    },
+    [flatItems, sorted, getRowId],
+  );
+
+  // Aggregates run over every row the view selected, not the rendered window:
+  // a footer that changed as you scrolled would be describing the viewport.
+  const footerRows = useMemo(
+    () => (footerAggregations ? sorted.map((original) => ({ original })) : []),
+    [footerAggregations, sorted],
+  );
+
+  const headerSelection: SelectionState = useMemo(
+    () => selectionStateOf(selected, visibleRowIds),
+    [selected, visibleRowIds],
+  );
+
+  const onRowToggle = useCallback(
+    (rowId: string, modifiers: { additive: boolean; range: boolean }) => {
+      const result = resolveSelectionClick(
+        selected,
+        visibleRowIds,
+        rowId,
+        anchorRef.current,
+        modifiers,
+      );
+      anchorRef.current = result.anchorId;
+      commitSelection(result.selected);
+    },
+    [selected, visibleRowIds, commitSelection],
   );
 
   // Pinned columns are excluded: a frozen column that drifts out of the frozen
@@ -322,7 +498,19 @@ export function DataGrid<TData extends RowData>({
                   {...reorder.dragProps(entry.id)}
                   onClick={(e) => onHeaderClick(column, e.shiftKey)}
                 >
-                  <span className="ftg-th-label">{column.label}</span>
+                  {entry.id === SELECTION_COLUMN_ID ? (
+                    renderCheckbox({
+                      checked: headerSelection === "all",
+                      indeterminate: headerSelection === "some",
+                      label: "Select all rows",
+                      onToggle: () => {
+                        anchorRef.current = null;
+                        commitSelection(toggleIds(selected, visibleRowIds));
+                      },
+                    })
+                  ) : (
+                    <span className="ftg-th-label">{column.label}</span>
+                  )}
                   {sort ? (
                     <span className="ftg-sort-mark" aria-hidden="true">
                       {sort.dir === "desc" ? " ↓" : " ↑"}
@@ -367,6 +555,25 @@ export function DataGrid<TData extends RowData>({
               return (
                 <tr key={`h:${item.key}`} className="ftg-group-row">
                   <td colSpan={layout.length}>
+                    {selectable
+                      ? (() => {
+                          const ids = groupRowIds(item.key);
+                          const state = selectionStateOf(selected, ids);
+                          return (
+                            <span className="ftg-group-select">
+                              {renderCheckbox({
+                                checked: state === "all",
+                                indeterminate: state === "some",
+                                label: `Select all rows in ${item.label}`,
+                                onToggle: () => {
+                                  anchorRef.current = null;
+                                  commitSelection(toggleIds(selected, ids));
+                                },
+                              })}
+                            </span>
+                          );
+                        })()
+                      : null}
                     <button
                       type="button"
                       className="ftg-group-toggle"
@@ -386,10 +593,13 @@ export function DataGrid<TData extends RowData>({
               );
             }
             const row = sorted[item.rowIndex];
+            const rowId = getRowId ? getRowId(row) : undefined;
+            const isSelected = rowId !== undefined && selected.has(rowId);
             return (
               <tr
-                key={getRowId ? getRowId(row) : `r:${item.rowIndex}`}
-                className="ftg-row"
+                key={rowId ?? `r:${item.rowIndex}`}
+                className={cx("ftg-row", isSelected && "ftg-row-selected")}
+                aria-selected={selectable ? isSelected : undefined}
               >
                 {layout.map((entry, columnIndex) => {
                   const column = entry.item;
@@ -397,10 +607,33 @@ export function DataGrid<TData extends RowData>({
                   return (
                     <td
                       key={entry.id}
+                      data-column-id={entry.id}
                       className={spec.staticClass}
                       style={spec.style}
                     >
-                      {column.type.dataType === "index" ? (
+                      {entry.id === SELECTION_COLUMN_ID &&
+                      rowId !== undefined ? (
+                        // Modifiers are read here rather than on the row, so a
+                        // range drag cannot collide with whatever the host puts
+                        // inside a cell.
+                        <span
+                          onClickCapture={(e) =>
+                            onRowToggle(rowId, {
+                              additive: e.metaKey || e.ctrlKey,
+                              range: e.shiftKey,
+                            })
+                          }
+                        >
+                          {renderCheckbox({
+                            checked: isSelected,
+                            indeterminate: false,
+                            label: `Select row ${positions.get(item.rowIndex) ?? ""}`,
+                            onToggle: () => {
+                              /* handled by onClickCapture above */
+                            },
+                          })}
+                        </span>
+                      ) : column.type.dataType === "index" ? (
                         <span className={ROW_INDEX_TEXT_CLASS}>
                           {positions.get(item.rowIndex) ?? ""}
                         </span>
@@ -414,6 +647,59 @@ export function DataGrid<TData extends RowData>({
             );
           })}
         </tbody>
+        {footerAggregations && numberFormatter ? (
+          <tfoot>
+            <tr className="ftg-foot-row">
+              {layout.map((entry, columnIndex) => {
+                const column = entry.item;
+                const aggregation = footerAggregations[entry.id];
+                const spec = cellSpecs[columnIndex];
+                // A column with no selected aggregation, or one its type does
+                // not support, renders an empty cell rather than a zero.
+                if (!aggregation || !column.type.aggregatable) {
+                  return (
+                    <td
+                      key={entry.id}
+                      className={spec.staticClass}
+                      style={spec.style}
+                    />
+                  );
+                }
+                const read = column.getFilterValue
+                  ? (r: TData) => column.getFilterValue?.(r)
+                  : undefined;
+                const value = resolveFooterValue(
+                  entry.id,
+                  aggregation,
+                  footerValues,
+                  () =>
+                    computeRowsAgg(
+                      footerRows,
+                      column.accessorKey ?? entry.id,
+                      aggregation,
+                      read,
+                    ),
+                );
+                return (
+                  <td
+                    key={entry.id}
+                    className={spec.staticClass}
+                    style={spec.style}
+                  >
+                    {renderFooterCell
+                      ? renderFooterCell(column, value, aggregation)
+                      : formatFooterAggregate(
+                          value,
+                          aggregation,
+                          column,
+                          numberFormatter,
+                        )}
+                  </td>
+                );
+              })}
+            </tr>
+          </tfoot>
+        ) : null}
       </table>
     </div>
   );

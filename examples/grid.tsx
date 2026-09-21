@@ -78,6 +78,10 @@ export function ControlledGrid({
 }) {
   const [view, setView] = useState<GridView>(initialView);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  // Selection stays out of the view: it is ephemeral, like collapsed groups.
+  const [selectedRows, setSelectedRows] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   // Still read-only as far as the grid is concerned - nothing inside it writes
   // visibility. Your column manager writes it here instead of into a useState
@@ -109,6 +113,7 @@ export function ControlledGrid({
       <span>
         {isViewDirty(view, initialView) ? "Unsaved changes" : "Saved"}
       </span>
+      <span>{selectedRows.size} selected</span>
       <DataGrid
         rows={rows}
         columns={columns}
@@ -118,6 +123,15 @@ export function ControlledGrid({
         onViewChange={setView}
         collapsedGroups={collapsed}
         onCollapsedGroupsChange={setCollapsed}
+        // Shift-click a checkbox for a range, cmd/ctrl-click to add one.
+        // Needs the `getRowId` above; without it selection is ignored.
+        enableSelection
+        selectedRowIds={selectedRows}
+        onSelectionChange={setSelectedRows}
+        // One aggregation per column id. `numberFormatter` is required for a
+        // footer to render - next-intl's `useFormatter()` satisfies it as-is.
+        footerAggregations={{ price: "avg" }}
+        numberFormatter={{ number: (v, o) => v.toLocaleString("en-GB", o) }}
         reorderable
         categoryOf={(id) => CATEGORY[id]}
       />

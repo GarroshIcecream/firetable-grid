@@ -119,6 +119,49 @@ reading as itself in stored JSON. TanStack's `{ id, desc }` is confined to
 `toTanstackSorting` / `fromTanstackSorting` — nothing else in the engine, or in
 your code, has to know that shape exists.
 
+### Selection
+
+`enableSelection` prepends a checkbox column. It needs `getRowId` and is
+ignored without it — a selection keyed on row position follows the wrong rows
+through a sort, which is worse than no selection.
+
+Shift-click extends a range, cmd/ctrl-click toggles one row, the header
+checkbox is tri-state over the visible rows, and each group header selects its
+own group without disturbing the others.
+
+The range spans the rows **as rendered**, from the flat item list — so
+shift-clicking across a collapsed group selects what you can see and nothing
+hidden underneath. That logic is `resolveSelectionClick`, `selectionStateOf`
+and `toggleIds`, all pure and usable without the component.
+
+Selection state deliberately stays **out of `GridView`**: it is ephemeral, like
+the collapsed-group set. Nobody wants a four-hundred-row selection restored
+from a link three weeks later.
+
+### Footer aggregates
+
+`footerAggregations` maps a column id to one of `avg`, `sum`, `min`, `max` or
+`count`, and the grid renders a sticky `<tfoot>`. A column with no entry, or
+whose type is not `aggregatable`, renders an empty cell rather than a zero.
+`numberFormatter` is required — the engine holds no locale, and next-intl's
+`useFormatter()` satisfies it as-is.
+
+Aggregates run over every row the view selected, not the rendered window, so
+the footer does not change as you scroll.
+
+**With paged data, pass `footerValues`.** Server-computed aggregates win over
+the loaded rows, because the loaded slice drifts from the real total as pages
+arrive and a local sum would confidently understate it. An explicit `null` from
+the server is an answer, not a miss — it will not fall back to a local number
+computed over a different set of rows.
+
+```ts
+footerValues={{ price: { sum: 4_211_900 } }}     // beats any local computation
+```
+
+`renderCheckbox` and `renderFooterCell` replace the bare defaults; the package
+ships no UI kit.
+
 ## Export
 
 CSV and XLSX both resolve cells through the same `ExportCellContext`, so an export matches what the grid shows — including threshold colours.
@@ -189,6 +232,10 @@ with its `on…Change` partner to take control and persist it:
   rows={rows} columns={columns} renderCell={renderCell}
   getRowId={(row) => row.id}                     // stable row identity
   view={view} onViewChange={setView}             // search, filter, sort, group, columns
+  enableSelection                                // adds a checkbox column
+  selectedRowIds={selected} onSelectionChange={setSelected}
+  footerAggregations={{ price: "avg" }}          // one aggregation per column id
+  numberFormatter={formatter}                    // required for a footer
   reorderable                                    // opt in to drag-to-reorder
   categoryOf={(id) => CATEGORY[id]}              // optional: confine a drag
 />;
@@ -306,6 +353,8 @@ It pulls in no UI kit.
 | `grid-view` | `GridView` — search, filter, sort, grouping and column layout in one serializable object |
 | `view-diff` | `diffView` / `isViewDirty` — does this view have unsaved changes, and which fields moved |
 | `view-columns` | resolving a view's column layout against a schema: order, visibility, pins |
+| `selection` | range/anchor selection over the rendered row order, tri-state header, per-group toggles |
+| `footer-aggregate-value` | `resolveFooterValue` — server-computed aggregates beat the loaded rows |
 | `sorting-state` | multi-column sort state, capped and normalized, plus the only two functions that know TanStack's sort shape |
 | `date-grouping` | group dates by day/week/month/quarter/year, with injectable relative labels. A value's calendar day is always the **local** one — a string contributes its literal `YYYY-MM-DD` prefix, a `Date` its local day — so filtering, grouping and both export formats agree on which day a row falls on |
 | `threshold` | value→colour bands, zod-free so cell renderers can import the resolvers |
