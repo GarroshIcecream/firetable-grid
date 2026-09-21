@@ -6,6 +6,7 @@ import {
   col,
   dateGroupValue,
   exportCellText,
+  PLAIN_EXPORT_CONTEXT,
   type RelativeLabels,
   resolveCellValue,
   resolveExportCell,
@@ -131,5 +132,78 @@ describe("buildExportFilename", () => {
       date: new Date(2026, 5, 8),
     });
     expect(name).toBe("report_2026-06-08.csv");
+  });
+});
+
+// The CSV text path takes a shortcut past `resolveExportCell`'s Date, because
+// building one only to format it back is 12x the cost of reading the day
+// string. These pin every shape that shortcut must NOT change - written
+// against the original behaviour, so they are the proof the shortcut is exact.
+describe("the CSV date shortcut is behaviour-preserving", () => {
+  type Row = { when: unknown; label?: string };
+  const dateCol = col<Row>({
+    id: "when",
+    label: "When",
+    type: ColumnTypes.DATE,
+  });
+
+  const text = (raw: unknown) => resolveCellValue({ when: raw }, dateCol);
+
+  test("a bare YYYY-MM-DD comes back unchanged", () => {
+    expect(text("2026-03-15")).toBe("2026-03-15");
+  });
+
+  test("an instant keeps its literal date prefix", () => {
+    // Not reinterpreted into the local day of that instant - the filter and
+    // grouping paths key off the literal prefix, and the file must agree.
+    expect(text("2026-06-08T14:42:55.000Z")).toBe("2026-06-08");
+  });
+
+  test("a Date object reports its LOCAL calendar day", () => {
+    const d = new Date(2026, 2, 15, 23, 30);
+    expect(text(d)).toBe(toLocalYmd(d));
+    expect(text(d)).toBe("2026-03-15");
+  });
+
+  test("null and undefined export as empty", () => {
+    expect(text(null)).toBe("");
+    expect(text(undefined)).toBe("");
+  });
+
+  test("a string with no YYYY-MM-DD prefix still goes through the platform parser", () => {
+    // The shortcut must decline this one: `toYmd` returns "" and the original
+    // path falls back to `new Date(raw)` so a locale format still exports.
+    const parsed = text("Sep 20, 2026");
+    expect(parsed).toBe(toLocalYmd(new Date("Sep 20, 2026")));
+    expect(parsed).not.toBe("");
+  });
+
+  test("an unparseable string exports as empty, not as garbage", () => {
+    expect(text("not a date at all")).toBe("");
+  });
+
+  test("labelKey still wins over date formatting", () => {
+    // `resolveExportCell` checks labelKey BEFORE the date branch, so the
+    // shortcut has to decline whenever a date column carries one.
+    const labelled = col<Row>({
+      id: "when",
+      label: "When",
+      type: ColumnTypes.DATE,
+      labelKey: "label",
+    });
+    expect(
+      resolveCellValue({ when: "2026-03-15", label: "Release day" }, labelled),
+    ).toBe("Release day");
+  });
+
+  test("the shortcut agrees with resolveExportCell for every day of a month", () => {
+    for (let day = 1; day <= 31; day++) {
+      const ymd = `2026-01-${String(day).padStart(2, "0")}`;
+      expect(text(ymd)).toBe(
+        exportCellText(
+          resolveExportCell({ when: ymd }, dateCol, PLAIN_EXPORT_CONTEXT),
+        ),
+      );
+    }
   });
 });

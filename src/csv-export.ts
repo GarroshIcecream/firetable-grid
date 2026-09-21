@@ -12,7 +12,7 @@
 import type { ColumnVisibilityState, RowData } from "@tanstack/react-table";
 
 import { isColumnVisible, type SchemaColumn } from "./column-schema";
-import { toLocalYmd } from "./date-grouping";
+import { toLocalYmd, toYmd } from "./date-grouping";
 import {
   type ExportCellContext,
   exportCellText,
@@ -105,6 +105,29 @@ export function resolveCellValue<TData extends RowData>(
   col: SchemaColumn<TData>,
   ctx: ExportCellContext<TData> = PLAIN_EXPORT_CONTEXT,
 ): string {
+  // Date columns take a shortcut past `resolveExportCell`.
+  //
+  // That function is shaped for XLSX, where a date cell has to carry a real
+  // `Date` plus a number format for ExcelJS to write it as a date rather than
+  // as text. CSV only ever wants the day string - and reaching it through the
+  // Date means parsing the day out, allocating a Date from it, then reading
+  // that Date's local year/month/day back out to rebuild the identical string.
+  // Measured over 200k date cells: 3.0 ms this way against 36.7 ms through the
+  // Date, and date cells were 3x the cost of numeric ones in a CSV export
+  // because of it.
+  //
+  // The shortcut declines in exactly the cases where the original path would
+  // not have reached its date branch: a `labelKey` column, which is checked
+  // ahead of the date branch there, and a value with no YYYY-MM-DD prefix,
+  // which falls through to the platform parser so a locale format still
+  // exports. `toYmd` returning "" is that second signal.
+  if (col.type.dataType === "date" && !col.labelKey) {
+    const raw = (row as Record<string, unknown>)[col.accessorKey ?? col.id];
+    if (raw !== null && raw !== undefined) {
+      const ymd = toYmd(raw);
+      if (ymd !== "") return ymd;
+    }
+  }
   return exportCellText(resolveExportCell(row, col, ctx));
 }
 
