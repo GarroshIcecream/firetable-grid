@@ -52,7 +52,9 @@ export function selectionColumn<TData extends RowData>(): SchemaColumn<TData> {
 }
 
 export interface SelectionClick {
-  /** Ctrl/Cmd — toggle the clicked row and keep the rest. */
+  /** Toggle the clicked row and keep the rest — what a checkbox does, and
+   *  what ctrl/cmd does to a row click. Also the fallback when a `range`
+   *  has no anchor to extend from. */
   additive?: boolean;
   /** Shift — extend from the anchor to the clicked row. */
   range?: boolean;
@@ -82,19 +84,14 @@ export function resolveSelectionClick(
   anchorId: string | null,
   click: SelectionClick = {},
 ): SelectionResult {
-  if (click.additive) {
-    const selected = new Set(current);
-    if (selected.has(clickedId)) selected.delete(clickedId);
-    else selected.add(clickedId);
-    return { selected, anchorId: clickedId };
-  }
-
+  // Range first, so a caller that means "toggle, and extend when you can" -
+  // every checkbox - can pass both and still get a range out of a shift.
   if (click.range && anchorId !== null) {
     const from = orderedIds.indexOf(anchorId);
     const to = orderedIds.indexOf(clickedId);
     // An anchor that is no longer rendered - filtered away, or collapsed into
     // a group - would extend to an index that does not exist, selecting an
-    // arbitrary span. Fall back to a plain click instead.
+    // arbitrary span. Fall through to whatever the click means without it.
     if (from !== -1 && to !== -1) {
       const selected = new Set(current);
       const start = Math.min(from, to);
@@ -104,7 +101,34 @@ export function resolveSelectionClick(
     }
   }
 
+  if (click.additive) {
+    const selected = new Set(current);
+    if (selected.has(clickedId)) selected.delete(clickedId);
+    else selected.add(clickedId);
+    return { selected, anchorId: clickedId };
+  }
+
   return { selected: new Set([clickedId]), anchorId: clickedId };
+}
+
+/**
+ * What a click on the checkbox column means.
+ *
+ * A checkbox is a toggle, not a cursor: ticking a second row has to keep the
+ * first, and clicking a ticked row has to untick it. A bare
+ * `resolveSelectionClick` does the opposite - it REPLACES the selection, which
+ * is right for a click on a row's body in a file manager and wrong for every
+ * checkbox ever drawn. Wiring the column straight to it is what left the grid
+ * single-select.
+ *
+ * So a checkbox click is always additive, and shift additionally asks for a
+ * range; with no anchor to extend from, the toggle is what survives, because
+ * clearing a selection the user built is never what a shift meant.
+ */
+export function checkboxClick(modifiers: {
+  shiftKey: boolean;
+}): SelectionClick {
+  return { additive: true, range: modifiers.shiftKey };
 }
 
 /**

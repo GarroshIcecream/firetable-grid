@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  checkboxClick,
   resolveSelectionClick,
   selectExportColumns,
   selectionColumn,
@@ -115,6 +116,56 @@ describe("resolveSelectionClick", () => {
     });
     expect(r.selected).not.toBe(current);
     expect(ids(current)).toEqual(["a"]);
+  });
+});
+
+describe("checkboxClick", () => {
+  // A checkbox is a toggle, not a cursor. Wiring it straight to the bare
+  // row-click semantics is what made the grid single-select: every tick threw
+  // the previous one away, and a ticked box could not be unticked.
+  const order = ["a", "b", "c", "d", "e"];
+  const click = (
+    current: Set<string>,
+    clickedId: string,
+    anchorId: string | null,
+    shiftKey = false,
+  ) =>
+    resolveSelectionClick(
+      current,
+      order,
+      clickedId,
+      anchorId,
+      checkboxClick({ shiftKey }),
+    );
+
+  test("ticking a second checkbox keeps the first", () => {
+    const r = click(new Set(["a"]), "c", "a");
+    expect(ids(r.selected)).toEqual(["a", "c"]);
+    expect(r.anchorId).toBe("c");
+  });
+
+  test("clicking a ticked checkbox unticks it", () => {
+    const r = click(new Set(["a", "c"]), "c", "a");
+    expect(ids(r.selected)).toEqual(["a"]);
+  });
+
+  test("shift extends a range from the anchor", () => {
+    const r = click(new Set(["b"]), "d", "b", true);
+    expect(ids(r.selected)).toEqual(["b", "c", "d"]);
+    expect(r.anchorId).toBe("b");
+  });
+
+  test("shift with no live anchor toggles instead of clearing the rest", () => {
+    // The header select-all drops the anchor. A shift-click afterwards has no
+    // range to extend, and collapsing the selection to the one row clicked is
+    // the single-select bug all over again.
+    const r = click(new Set(["a", "b", "c"]), "e", null, true);
+    expect(ids(r.selected)).toEqual(["a", "b", "c", "e"]);
+  });
+
+  test("shift over an anchor that is no longer rendered toggles too", () => {
+    const r = click(new Set(["a", "b"]), "d", "gone", true);
+    expect(ids(r.selected)).toEqual(["a", "b", "d"]);
   });
 });
 

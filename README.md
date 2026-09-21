@@ -125,9 +125,12 @@ your code, has to know that shape exists.
 ignored without it — a selection keyed on row position follows the wrong rows
 through a sort, which is worse than no selection.
 
-Shift-click extends a range, cmd/ctrl-click toggles one row, the header
-checkbox is tri-state over the visible rows, and each group header selects its
-own group without disturbing the others.
+Clicking a checkbox toggles that row and leaves the rest alone; shift-click
+extends a range from the last row clicked; the header checkbox is tri-state
+over the visible rows, and each group header selects its own group without
+disturbing the others. (`resolveSelectionClick` still offers the file-manager
+reading — a bare click that replaces the selection — to a caller wiring up
+clicks on the row body; `checkboxClick` is the checkbox's own modifiers.)
 
 The range spans the rows **as rendered**, from the flat item list — so
 shift-clicking across a collapsed group selects what you can see and nothing

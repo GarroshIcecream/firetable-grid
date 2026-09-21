@@ -37,7 +37,9 @@ import {
   SELECTION_COLUMN_ID,
 } from "../layout";
 import {
+  checkboxClick,
   resolveSelectionClick,
+  type SelectionClick,
   type SelectionState,
   selectionColumn,
   selectionStateOf,
@@ -395,13 +397,13 @@ export function DataGrid<TData extends RowData>({
   );
 
   const onRowToggle = useCallback(
-    (rowId: string, modifiers: { additive: boolean; range: boolean }) => {
+    (rowId: string, click: SelectionClick) => {
       const result = resolveSelectionClick(
         selected,
         visibleRowIds,
         rowId,
         anchorRef.current,
-        modifiers,
+        click,
       );
       anchorRef.current = result.anchorId;
       commitSelection(result.selected);
@@ -618,10 +620,10 @@ export function DataGrid<TData extends RowData>({
                         // inside a cell.
                         <span
                           onClickCapture={(e) =>
-                            onRowToggle(rowId, {
-                              additive: e.metaKey || e.ctrlKey,
-                              range: e.shiftKey,
-                            })
+                            onRowToggle(
+                              rowId,
+                              checkboxClick({ shiftKey: e.shiftKey }),
+                            )
                           }
                         >
                           {renderCheckbox({
