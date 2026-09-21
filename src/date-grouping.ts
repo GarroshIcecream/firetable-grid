@@ -114,10 +114,61 @@ function civilDayNumber(year: number, month: number, day: number): number {
   return era * 146097 + doe - 719468;
 }
 
+/** Everything about `now` that bucketing needs, as day numbers. */
+interface RelativeWindow {
+  todayDays: number;
+  /** Monday of the week containing today. */
+  weekStartDays: number;
+  year: number;
+  month: number;
+}
+
+/**
+ * Single-slot memo for the window, keyed on the instant.
+ *
+ * `dateGroupValue` takes `now` per call but a grouping pass holds it fixed, so
+ * this is derived once per pass instead of 300,000 times. `getFullYear`,
+ * `getMonth`, `getDate` and `getDay` each convert to local time, which is why
+ * four of them per row was worth removing.
+ *
+ * Module-level mutable state, deliberately: it caches nothing but a derivation
+ * of its own key, so a miss recomputes and no caller can ever be handed
+ * another's data - the concern that makes shared state dangerous elsewhere in
+ * this package. Concurrent passes with different `now` values thrash the slot
+ * and stay correct.
+ */
+let windowCache: { key: number; window: RelativeWindow } | null = null;
+
+function relativeWindow(now: Date): RelativeWindow {
+  const key = now.getTime();
+  if (windowCache !== null && windowCache.key === key) {
+    return windowCache.window;
+  }
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+  const todayDays = civilDayNumber(year, month, now.getDate());
+  const dow = (now.getDay() + 6) % 7; // 0 = Mon … 6 = Sun
+  const window: RelativeWindow = {
+    todayDays,
+    weekStartDays: todayDays - dow,
+    year,
+    month,
+  };
+  windowCache = { key, window };
+  return window;
+}
+
+/**
+ * Bucket index (0 = most recent), allocating nothing.
+ *
+ * PRECONDITION: `ymd` is a well-formed YYYY-MM-DD. `dateGroupValue` is the
+ * only caller and reaches here only when `toYmd` returned one, so every
+ * character is already proved - an `isYmd` guard here scanned the same ten
+ * characters a second time on every row.
+ */
 function relativeBucket(ymd: string, now: Date): number {
-  if (!isYmd(ymd)) return 4;
-  // Digit arithmetic rather than `split("-").map(Number)`: `isYmd` has already
-  // proved every character, and this is the per-row path.
+  // Digit arithmetic rather than `split("-").map(Number)`: no allocation on
+  // the per-row path.
   const year =
     (ymd.charCodeAt(0) - ZERO) * 1000 +
     (ymd.charCodeAt(1) - ZERO) * 100 +
@@ -126,19 +177,13 @@ function relativeBucket(ymd: string, now: Date): number {
   const month = (ymd.charCodeAt(5) - ZERO) * 10 + (ymd.charCodeAt(6) - ZERO);
   const day = (ymd.charCodeAt(8) - ZERO) * 10 + (ymd.charCodeAt(9) - ZERO);
 
-  const nowYear = now.getFullYear();
-  const nowMonth = now.getMonth() + 1;
+  const window = relativeWindow(now);
   const rowDays = civilDayNumber(year, month, day);
-  const todayDays = civilDayNumber(nowYear, nowMonth, now.getDate());
-
-  const diffDays = todayDays - rowDays;
+  const diffDays = window.todayDays - rowDays;
   if (diffDays === 0) return 0;
   if (diffDays === 1) return 1;
-  // Monday-based week containing today. `now.getDay()` is the same weekday as
-  // local midnight of the same day, so the week start needs no Date either.
-  const dow = (now.getDay() + 6) % 7; // 0 = Mon … 6 = Sun
-  if (rowDays >= todayDays - dow && rowDays <= todayDays) return 2;
-  if (year === nowYear && month === nowMonth) return 3;
+  if (rowDays >= window.weekStartDays && rowDays <= window.todayDays) return 2;
+  if (year === window.year && month === window.month) return 3;
   return 4;
 }
 
