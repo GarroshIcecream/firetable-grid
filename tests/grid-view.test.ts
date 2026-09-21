@@ -6,6 +6,8 @@ import {
   applyView,
   emptyGridView,
   type GridView,
+  hiddenColumnIds,
+  isColumnLayoutEmpty,
   isGridViewEmpty,
   where,
 } from "../src";
@@ -89,6 +91,76 @@ describe("a view is plain JSON", () => {
 
   test("a default view round-trips too", () => {
     const view = emptyGridView();
+    expect(JSON.parse(JSON.stringify(view))).toEqual(view);
+  });
+});
+
+describe("hiddenColumnIds", () => {
+  test("collects only the ids explicitly mapped to false", () => {
+    // The visibility record is sparse: absent means visible, and a `true`
+    // entry is a column manager writing the default back. Both must read as
+    // "not hidden", or a view that has been through a column manager looks
+    // different from one that has not.
+    expect([...hiddenColumnIds({ a: false, b: true, c: false })]).toEqual([
+      "a",
+      "c",
+    ]);
+    expect(hiddenColumnIds({ a: true }).size).toBe(0);
+    expect(hiddenColumnIds({}).size).toBe(0);
+    expect(hiddenColumnIds(undefined).size).toBe(0);
+  });
+});
+
+describe("isColumnLayoutEmpty", () => {
+  test("an absent or blank layout is empty", () => {
+    expect(isColumnLayoutEmpty(undefined)).toBe(true);
+    expect(isColumnLayoutEmpty({})).toBe(true);
+    expect(isColumnLayoutEmpty({ order: [], pinned: [], sizes: {} })).toBe(
+      true,
+    );
+  });
+
+  test("a visibility record of nothing but `true` is still empty", () => {
+    expect(isColumnLayoutEmpty({ visibility: { a: true } })).toBe(true);
+  });
+
+  test("any real layout is not empty", () => {
+    expect(isColumnLayoutEmpty({ order: ["a"] })).toBe(false);
+    expect(isColumnLayoutEmpty({ visibility: { a: false } })).toBe(false);
+    expect(isColumnLayoutEmpty({ sizes: { a: 120 } })).toBe(false);
+    expect(isColumnLayoutEmpty({ pinned: ["a"] })).toBe(false);
+  });
+});
+
+describe("a view carrying a column layout", () => {
+  test("isGridViewEmpty accounts for the layout", () => {
+    expect(
+      isGridViewEmpty({
+        ...emptyGridView(),
+        columns: { visibility: { a: true } },
+      }),
+    ).toBe(true);
+    expect(
+      isGridViewEmpty({ ...emptyGridView(), columns: { order: ["a"] } }),
+    ).toBe(false);
+  });
+
+  test("emptyGridView carries no layout at all", () => {
+    // Absent, not `{}`: a default view tracks no columns, and the diff reads
+    // an absent key as "not tracked".
+    expect("columns" in emptyGridView()).toBe(false);
+  });
+
+  test("a layout survives the JSON round trip", () => {
+    const view: GridView = {
+      ...emptyGridView(),
+      columns: {
+        order: ["b", "a"],
+        visibility: { c: false },
+        sizes: { a: 120 },
+        pinned: ["b"],
+      },
+    };
     expect(JSON.parse(JSON.stringify(view))).toEqual(view);
   });
 });
