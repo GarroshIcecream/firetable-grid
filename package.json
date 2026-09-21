@@ -53,6 +53,9 @@
     "demo": "bun demo/build.ts",
     "prepare": "bun run build"
   },
+  "dependencies": {
+    "dequal": "^2.0.3"
+  },
   "peerDependencies": {
     "@tanstack/react-table": ">=9",
     "@tanstack/react-virtual": "^3",

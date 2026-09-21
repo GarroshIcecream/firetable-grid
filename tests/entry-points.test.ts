@@ -207,3 +207,41 @@ describe("package.json declares the entry points it ships", () => {
     }
   });
 });
+
+describe("every package a source file imports is declared", () => {
+  test("no entry point reaches an undeclared bare specifier", () => {
+    // A specifier that resolves here through bun's hoisting but appears in
+    // neither `dependencies` nor `peerDependencies` installs fine in this repo
+    // and is missing in a consumer's - which is how `@tanstack/table-core`
+    // shipped broken before it was made a peer.
+    const pkg = JSON.parse(
+      readFileSync(resolve(import.meta.dir, "../package.json"), "utf8"),
+    );
+    const declared = new Set([
+      ...Object.keys(pkg.dependencies ?? {}),
+      ...Object.keys(pkg.peerDependencies ?? {}),
+    ]);
+    const entries = [
+      "index.ts",
+      "schema.ts",
+      "server.ts",
+      "layout/index.ts",
+      "react/index.ts",
+    ];
+
+    const undeclared = new Set<string>();
+    for (const entry of entries) {
+      for (const [specifier, culprit] of reachableBarePackages(
+        join(SRC, entry),
+      )) {
+        if (specifier.startsWith("node:")) continue;
+        // "@scope/name/sub" -> "@scope/name";  "name/sub" -> "name"
+        const name = specifier.startsWith("@")
+          ? specifier.split("/").slice(0, 2).join("/")
+          : (specifier.split("/")[0] as string);
+        if (!declared.has(name)) undeclared.add(`${name} (src/${culprit})`);
+      }
+    }
+    expect([...undeclared]).toEqual([]);
+  });
+});
