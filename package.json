@@ -1,6 +1,6 @@
 {
   "name": "firetable-grid",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Schema-driven filter, sort, group and export engine for TanStack Table — generic over your row type.",
   "license": "MIT",
   "type": "module",
