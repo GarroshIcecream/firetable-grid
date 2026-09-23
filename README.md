@@ -1,5 +1,7 @@
 # firetable-grid
 
+[![npm](https://img.shields.io/npm/v/firetable-grid)](https://www.npmjs.com/package/firetable-grid) [![Publish](https://github.com/GarroshIcecream/firetable-grid/actions/workflows/publish.yml/badge.svg)](https://github.com/GarroshIcecream/firetable-grid/actions/workflows/publish.yml)
+
 A schema-driven filter, sort, group and export engine for [TanStack Table](https://tanstack.com/table), generic over your row type.
 
 It is **headless and rendering-agnostic**: it owns the *state and logic* behind a data grid — one serializable view object holding search, filter, sort and grouping, date grouping, threshold and enum colouring, column layout, and CSV/XLSX export — and leaves the cells and chrome to you. You describe your columns once; the engine works off that description.
