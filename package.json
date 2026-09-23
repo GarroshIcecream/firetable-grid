@@ -6,7 +6,7 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/carsdatacom/firetable-grid.git"
+    "url": "git+https://github.com/GarroshIcecream/firetable-grid.git"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
