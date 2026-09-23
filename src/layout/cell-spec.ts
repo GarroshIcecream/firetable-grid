@@ -32,11 +32,12 @@ export type CellMeta<TData extends RowData> = {
 };
 
 /**
- * Shape a placeholder cell takes while the first page loads. Derived from the
- * column's own cell renderer, so the skeleton reads like the table it is
- * standing in for - a thumbnail column shows a square, a badge column a pill,
- * a number column a short right-aligned bar - instead of one uniform grey bar
- * per cell, which reads as a loading screen rather than as a grid.
+ * Shape a placeholder cell takes while the first page loads. Keyed on the
+ * column's cell renderer through the map you pass `buildCellSpecs`, so the
+ * skeleton reads like the table it is standing in for - a thumbnail column
+ * shows a square, a badge column a pill, a number column a short
+ * right-aligned bar - instead of one uniform grey bar per cell, which reads
+ * as a loading screen rather than as a grid. An unmapped renderer is `text`.
  */
 export type SkeletonShape =
   | "image"
@@ -47,35 +48,9 @@ export type SkeletonShape =
   | "twoLine"
   | "none";
 
-/**
- * Default skeleton shape per cell renderer, covering the renderer names used by
- * `examples/column-types.ts`. Pass `skeletonShapes` to `buildCellSpecs` to add
- * your own — an unknown renderer falls back to `"text"`.
- */
-export const DEFAULT_SKELETON_SHAPES: Readonly<Record<string, SkeletonShape>> =
-  {
-    indexCell: "none",
-    thumbnail: "image",
-    titleDescription: "twoLine",
-    accuracyBadge: "pill",
-    daysBadge: "pill",
-    genericBadge: "pill",
-    kmBadge: "pill",
-    evidenceChips: "pill",
-    recommendedActions: "pill",
-    currency: "number",
-    date: "number",
-    decimal: "number",
-    number: "number",
-    rawNumber: "number",
-    trend: "number",
-    attentionProgress: "bar",
-    progressBar: "bar",
-    listingConversion: "bar",
-    scoreBreakdown: "bar",
-    link: "text",
-    text: "text",
-  };
+/** Stable identity for a grid that maps no shapes, so the fallback below
+ *  allocates once rather than once per layout. */
+const NO_SKELETON_SHAPES: Readonly<Record<string, SkeletonShape>> = {};
 
 export type CellSpec<TData extends RowData> = {
   id: string;
@@ -105,9 +80,9 @@ export interface BuildCellSpecsOptions<
   wrapCells: boolean;
   /** Reserve the narrow leading gutter for a selection checkbox column. */
   enableSelection?: boolean;
-  /** Renderers that take the tight gutter. Defaults to the index/thumbnail pair. */
+  /** Renderers that take the tight gutter. Empty by default — name yours. */
   denseCellRenderers?: ReadonlySet<string>;
-  /** Skeleton shape per renderer. Merged over `DEFAULT_SKELETON_SHAPES`. */
+  /** Skeleton shape per renderer. Unknown names fall back to `"text"`. */
   skeletonShapes?: Readonly<Record<string, SkeletonShape>>;
   /**
    * Where a column's cell metadata sits on your layout item.
@@ -135,9 +110,7 @@ export function buildCellSpecs<
     metaOf = headerMeta as unknown as (item: TItem) => CellMeta<TData>,
   }: BuildCellSpecsOptions<TData, TItem>,
 ): CellSpec<TData>[] {
-  const shapes = skeletonShapes
-    ? { ...DEFAULT_SKELETON_SHAPES, ...skeletonShapes }
-    : DEFAULT_SKELETON_SHAPES;
+  const shapes = skeletonShapes ?? NO_SKELETON_SHAPES;
   const verticalAlign = cellVerticalAlignClass(wrapCells);
   const wrapClass = wrapCells
     ? "whitespace-normal wrap-break-word"

@@ -15,6 +15,7 @@ import {
   applyView,
   compileView,
   emptyGridView,
+  FILTER_OP,
   type GridView,
   where,
 } from "../src";
@@ -27,6 +28,8 @@ import {
   RARE_TOKEN,
 } from "./dataset";
 
+const { gt, is, after } = FILTER_OP;
+
 const { rows, columns, rowCount, columnCount } = datasetFromEnv();
 
 const view = (over: Partial<GridView>): GridView => ({
@@ -34,22 +37,22 @@ const view = (over: Partial<GridView>): GridView => ({
   ...over,
 });
 
-const halfPass = view({ filter: where(FIELD.number, ">", PASS_HALF) });
-const fewPass = view({ filter: where(FIELD.number, ">", PASS_FEW) });
+const halfPass = view({ filter: where(FIELD.number, gt, PASS_HALF) });
+const fewPass = view({ filter: where(FIELD.number, gt, PASS_FEW) });
 const threeAnded = view({
   filter: all(
-    where(FIELD.number, ">", PASS_HALF),
-    where(FIELD.enum, "is", "Wheels"),
-    where(FIELD.date, "after", "2026-06-01"),
+    where(FIELD.number, gt, PASS_HALF),
+    where(FIELD.enum, is, "Wheels"),
+    where(FIELD.date, after, "2026-06-01"),
   ),
 });
 const nested = view({
   filter: all(
-    where(FIELD.number, ">", PASS_HALF),
+    where(FIELD.number, gt, PASS_HALF),
     any(
-      where(FIELD.enum, "is", "Wheels"),
-      where(FIELD.enum, "is", "Frames"),
-      where(FIELD.text, "is", "Acme"),
+      where(FIELD.enum, is, "Wheels"),
+      where(FIELD.enum, is, "Frames"),
+      where(FIELD.text, is, "Acme"),
     ),
   ),
 });

@@ -5,10 +5,13 @@ import {
   any,
   diffView,
   emptyGridView,
+  FILTER_OP,
   type GridView,
   isViewDirty,
   where,
 } from "../src";
+
+const { lte, is } = FILTER_OP;
 
 // Every rule below is carried over from FireTable's `computeIsDirty`, and each
 // one exists because of a bug that reached users. The describe names say which
@@ -24,7 +27,7 @@ describe("a view does not diverge from itself", () => {
   test("a fully populated view is clean against its own copy", () => {
     const v = view({
       search: "estate",
-      filter: all(where("price", "≤", "25000"), any(where("fuel", "is", "d"))),
+      filter: all(where("price", lte, "25000"), any(where("fuel", is, "d"))),
       sort: [{ field: "price", dir: "desc" }],
       group: { field: "make" },
       columns: {
@@ -64,12 +67,12 @@ describe("an explicit null is tracked, an absent key is not", () => {
   // distinguishable from "untracked" - which is why presence is tested with
   // `in` rather than against undefined.
   test("a baseline with filter null flags an added filter", () => {
-    const current = view({ filter: where("price", "≤", "1") });
+    const current = view({ filter: where("price", lte, "1") });
     expect(isViewDirty(current, { filter: null })).toBe(true);
   });
 
   test("a baseline with no filter key ignores the same change", () => {
-    const current = view({ filter: where("price", "≤", "1") });
+    const current = view({ filter: where("price", lte, "1") });
     expect(isViewDirty(current, {})).toBe(false);
   });
 
@@ -86,10 +89,10 @@ describe("key order does not make a view dirty", () => {
   // comparison reports a spurious diff after every single save.
   test("two filters built with different key order are equal", () => {
     const a: GridView = view({
-      filter: { kind: "where", field: "price", op: "≤", value: "1" },
+      filter: { kind: "where", field: "price", op: lte, value: "1" },
     });
     const b: GridView = view({
-      filter: { value: "1", op: "≤", field: "price", kind: "where" } as never,
+      filter: { value: "1", op: lte, field: "price", kind: "where" } as never,
     });
     expect(isViewDirty(a, b)).toBe(false);
   });

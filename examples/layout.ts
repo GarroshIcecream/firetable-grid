@@ -13,7 +13,11 @@ import {
   pendingRowRunway,
   resolvePinnedColumns,
 } from "../src/layout";
-import { ColumnTypes } from "./column-types";
+import {
+  ColumnTypes,
+  DENSE_CELL_RENDERERS,
+  SKELETON_SHAPES,
+} from "./column-types";
 
 interface Row {
   make: string;
@@ -57,7 +61,11 @@ export function layoutFor(
   const positions = buildRowPositionsByIndex(flatItems);
 
   // Per-column cell facts, hoisted out of the per-row render loop.
-  const specs = buildCellSpecs(layout, { wrapCells: opts.wrapCells ?? false });
+  const specs = buildCellSpecs(layout, {
+    wrapCells: opts.wrapCells ?? false,
+    denseCellRenderers: DENSE_CELL_RENDERERS,
+    skeletonShapes: SKELETON_SHAPES,
+  });
 
   return {
     layout,

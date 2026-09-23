@@ -10,8 +10,6 @@
 import type { SortingState } from "@tanstack/react-table";
 import type { SortDirection, SortRule } from "./grid-view";
 
-export const MAX_SORT_COLUMNS = 5;
-
 export interface ColumnSortState {
   dir: SortDirection;
   /** 0-based position in the sort, i.e. which column breaks ties first. */
@@ -23,12 +21,11 @@ function flip(dir: SortDirection): SortDirection {
 }
 
 /** Drops rules naming a column that cannot sort, de-duplicates repeats of the
- *  same column, coerces an unrecognized direction to "asc", and caps the
- *  result — so a stored sort written against an older schema stays usable. */
+ *  same column, and coerces an unrecognized direction to "asc" — so a stored
+ *  sort written against an older schema stays usable. */
 export function normalizeSort(
   sort: readonly SortRule[],
   sortableFields: ReadonlySet<string>,
-  maxSortColumns = MAX_SORT_COLUMNS,
 ): SortRule[] {
   const seen = new Set<string>();
   const normalized: SortRule[] = [];
@@ -41,7 +38,6 @@ export function normalizeSort(
       field: rule.field,
       dir: rule.dir === "desc" ? "desc" : "asc",
     });
-    if (normalized.length >= maxSortColumns) break;
   }
 
   return normalized;
@@ -75,7 +71,6 @@ export function toggleSort(
   options: {
     multi?: boolean;
     sortableFields: ReadonlySet<string>;
-    maxSortColumns?: number;
   },
 ): SortRule[] {
   if (!options.sortableFields.has(field)) return [...sort];
@@ -88,18 +83,6 @@ export function toggleSort(
     return [{ field, dir: current ? flip(current.dir) : "asc" }];
   }
 
-  const maxSortColumns = options.maxSortColumns ?? MAX_SORT_COLUMNS;
-
-  // A new column cannot push the sort past the cap; an already-sorted one
-  // still cycles, so a full sort never becomes impossible to unwind.
-  if (
-    current == null &&
-    normalizeSort(sort, options.sortableFields, Number.MAX_SAFE_INTEGER)
-      .length >= maxSortColumns
-  ) {
-    return [...sort];
-  }
-
   const next =
     current == null
       ? [...sort, { field, dir: "asc" as const }]
@@ -109,7 +92,7 @@ export function toggleSort(
             rule.field === field ? { field, dir: "desc" as const } : rule,
           );
 
-  return normalizeSort(next, options.sortableFields, maxSortColumns);
+  return normalizeSort(next, options.sortableFields);
 }
 
 // ── TanStack boundary ──────────────────────────────────────────────────────

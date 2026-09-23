@@ -1,8 +1,8 @@
 import { describe, expect, mock, test } from "bun:test";
 import * as ExcelJS from "exceljs";
 import { ColumnTypes } from "../examples/column-types";
-import type { ExportCellContext } from "../src";
-import { col, DAYS_DEFAULT_THRESHOLDS } from "../src";
+import type { ExportCellContext, ThresholdList } from "../src";
+import { col } from "../src";
 
 mock.module("server-only", () => ({}));
 
@@ -61,11 +61,15 @@ const rows: Row[] = [
   },
 ];
 
+const DAYS_THRESHOLDS: ThresholdList = [
+  { upTo: 30, color: { hue: "green", level: "dark" } },
+  { upTo: 60, color: { hue: "orange", level: "dark" } },
+  { color: { hue: "red", level: "dark" } },
+];
+
 const ctx: ExportCellContext = {
   colorsFor: (id) =>
-    id === "daysOnDisplayCalc"
-      ? { thresholds: DAYS_DEFAULT_THRESHOLDS }
-      : undefined,
+    id === "daysOnDisplayCalc" ? { thresholds: DAYS_THRESHOLDS } : undefined,
   enumLabel: () => null,
   currencySymbol: "€",
 };

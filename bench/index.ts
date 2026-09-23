@@ -10,6 +10,10 @@
 //   bun run bench                  the default ladder
 //   bun run bench -- --full        adds the 300k × 200 rung (~2.2 GB, slow)
 //   bun run bench -- filter        one file, every rung
+//   bun run bench -- vs/tanstack   compare against TanStack's own filtering
+//
+// `vs/tanstack` is deliberately out of the default ladder: it is a comparison,
+// not a regression guard, and it spawns a process per (side, case) of its own.
 //   BENCH_ROWS=300000 BENCH_COLS=200 bun bench/filter.bench.ts   one shot
 
 import { spawn } from "node:child_process";

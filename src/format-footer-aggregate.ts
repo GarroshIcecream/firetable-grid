@@ -16,7 +16,9 @@ export interface NumberFormatter {
 export function formatFooterAggregate(
   value: number | null,
   aggregation: AggregationType,
-  column: { type?: ColumnType; numberFormat?: NumberFormat } | undefined,
+  column:
+    | { type?: ColumnType; numberFormat?: NumberFormat; decimals?: number }
+    | undefined,
   formatter: NumberFormatter,
 ): string {
   if (value === null) return "—";
@@ -29,8 +31,13 @@ export function formatFooterAggregate(
     // progress scores retain their stored ratio in both rows and aggregates.
     return formatter.number(column?.type?.ratioStored ? value : value / 100, {
       style: "percent",
-      maximumFractionDigits: 2,
+      maximumFractionDigits: column?.decimals ?? 2,
     });
   }
-  return formatter.number(value, { maximumFractionDigits: 0 });
+  // A count is a whole number of rows whatever precision the column's own
+  // values carry, so `decimals` does not reach it.
+  return formatter.number(value, {
+    maximumFractionDigits:
+      aggregation === "count" ? 0 : (column?.decimals ?? 0),
+  });
 }

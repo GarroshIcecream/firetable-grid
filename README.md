@@ -36,6 +36,23 @@ const columnDefs = toColumnDefs(columns);
 
 `col()` fills in the defaults implied by the type — filter operators, sortability, width, alignment — so a column declaration stays one line until it needs to say more.
 
+**How a number reads is metadata, never a lookup on the renderer's name.** A
+type declares `numberFormat` (`currency` / `percent` / `decimal` / `integer`),
+`decimals`, `formatPrefix` / `formatSuffix` and `ratioStored`; a single column
+overrides `numberFormat` and `decimals` the way it overrides `unit`. The CSV,
+the XLSX number format and the footer aggregate all derive from those, so a
+rate that reads `0.25 %` on screen exports as `0.25 %` and not as `0 %`:
+
+```ts
+LISTING_RATE: {
+  dataType: "number", cellRenderer: "listingConversion", filterType: "numeric",
+  sortable: true, groupable: false, aggregatable: false,
+  formatSuffix: "%", numberFormat: "percent", decimals: 2,
+}
+```
+
+`decimals` defaults to one place for `percent` and `decimal`, none elsewhere.
+
 ## The view
 
 Everything a user can do to a table — search, filter, sort, group, and the
@@ -43,13 +60,22 @@ column layout — is one serializable object, one field each. That is what makes
 saved view a piece of JSON rather than five things you have to reassemble:
 
 ```ts
-import { all, any, applyView, type GridView, where } from "firetable-grid";
+import {
+  all,
+  any,
+  applyView,
+  FILTER_OP,
+  type GridView,
+  where,
+} from "firetable-grid";
+
+const { is, lte } = FILTER_OP;
 
 const view: GridView = {
   search: "estate",
   filter: all(
-    where("price", "≤", "25000"),
-    any(where("fuel", "is", "diesel"), where("fuel", "is", "hybrid")),
+    where("price", lte, "25000"),
+    any(where("fuel", is, "diesel"), where("fuel", is, "hybrid")),
   ),
   sort: [{ field: "price", dir: "asc" }],
   group: { field: "fuel" },
@@ -57,6 +83,17 @@ const view: GridView = {
 };
 
 const visible = applyView(rows, view, columns);   // search + filter
+```
+
+Operators are stored as the symbol itself — `"≥"`, not `"gte"` — so a saved
+view still reads as what it means when a human opens the JSON. You never have to
+type one: `FILTER_OP` names every operator, and the two spellings are the same
+value.
+
+```ts
+import { FILTER_OP, where } from "firetable-grid";
+
+where("price", FILTER_OP.lte, "25000");   // identical to where("price", "≤", "25000")
 ```
 
 `emptyGridView()` returns a fresh default — its own object and its own arrays
@@ -279,6 +316,8 @@ with its `on…Change` partner to take control and persist it:
   numberFormatter={formatter}                    // required for a footer
   reorderable                                    // opt in to drag-to-reorder
   categoryOf={(id) => CATEGORY[id]}              // optional: confine a drag
+  denseCellRenderers={DENSE_CELL_RENDERERS}      // module consts — see below
+  skeletonShapes={SKELETON_SHAPES}
 />;
 ```
 
@@ -286,16 +325,23 @@ with its `on…Change` partner to take control and persist it:
 offsets, ordering, sizing and grouping, and tells you which renderer a column
 wants via `column.type.cellRenderer`.
 
+**The two renderer-name lists are yours.** `denseCellRenderers` names the
+renderers that hold a fixed-size graphic and take the tight gutter;
+`skeletonShapes` gives the loading placeholder its shape, falling back to
+`"text"`. The engine ships neither — `examples/column-types.ts` exports a
+worked pair next to the catalogue they describe. **Keep both as module
+constants**: the per-column cell specs memoize on their identity, so a literal
+in the JSX rebuilds every one of them on every render.
+
 **Pass `getRowId`.** Without it rows key on their position, so a filter, a sort
 or an arriving page makes React reuse one row's DOM for another — which bleeds
 cell state (an open popover, a focused input) from one row into the next.
 
 **Sorting is multi-column** — click a header to cycle asc → desc → off,
 shift-click to add a column to the sort. It runs through `toggleSort`,
-so the sort is capped at `MAX_SORT_COLUMNS` (5) and a column that stops
-being sortable drops out on the next click. Pass `multiSort={false}` for
-single-column only. When more than one column is sorted each header shows its
-rank next to the arrow.
+so a column that stops being sortable drops out on the next click. Pass
+`multiSort={false}` for single-column only. When more than one column is
+sorted each header shows its rank next to the arrow.
 
 **`columnVisibility` is read-only.** The grid ships no column manager, so
 nothing inside it writes there — yours owns the state and passes it down. A
@@ -364,7 +410,7 @@ Two details worth knowing before you restyle:
   the position in the *unfiltered* data, so a filtered table numbers rows
   "1, 4, 7, 10". This counts the rows actually on screen.
 
-Both lists that key on your renderer names are overridable, and `metaOf` says
+Both lists that key on your renderer names are yours to pass, and `metaOf` says
 where a column's cell metadata lives on *your* layout item:
 
 ```ts
@@ -372,7 +418,7 @@ buildCellSpecs(layout, {
   wrapCells,
   enableSelection,
   denseCellRenderers: new Set(["sparkline"]),   // tighter gutter
-  skeletonShapes: { sparkline: "bar" },         // merged over the defaults
+  skeletonShapes: { sparkline: "bar" },         // unknown names fall back to "text"
   metaOf: (column) => column,                   // for a SchemaColumn layout
 });
 ```
@@ -397,7 +443,7 @@ It pulls in no UI kit.
 | `selection` | range/anchor selection over the rendered row order, tri-state header, per-group toggles |
 | `footer-aggregate-value` | `resolveFooterValue` — server-computed aggregates beat the loaded rows |
 | `layout/windowing` | `fixedRowWindow` / `reachedEndOfRows` — dependency-free row windowing and the paging trigger |
-| `sorting-state` | multi-column sort state, capped and normalized, plus the only two functions that know TanStack's sort shape |
+| `sorting-state` | multi-column sort state, plus the only two functions that know TanStack's sort shape |
 | `date-grouping` | group dates by day/week/month/quarter/year, with injectable relative labels. A value's calendar day is always the **local** one — a string contributes its literal `YYYY-MM-DD` prefix, a `Date` its local day — so filtering, grouping and both export formats agree on which day a row falls on |
 | `threshold` | value→colour bands, zod-free so cell renderers can import the resolvers |
 | `firetable-grid/schema` | zod schemas for validating stored threshold and enum-colour config — a separate entry point so zod stays out of your client bundle |

@@ -41,32 +41,18 @@ export const PLAIN_EXPORT_CONTEXT: ExportCellContext = {
   currencySymbol: "€",
 };
 
-const NEUTRAL_ZERO: PaletteColor = { hue: "gray", level: "dark" };
-
-// The number format follows the column's own metadata (dataType, formatPrefix,
-// formatSuffix, ratioStored, numberFormat). These are the only cases metadata
-// cannot express: three carry a scale or precision the value alone does not
-// imply, `rawNumber` deliberately omits the thousands separator, and `trend`
-// paints 0 as "no change" regardless of where the thresholds put it.
-const RENDERER_OVERRIDES: Readonly<
-  Record<string, { readonly numFmt?: string; readonly zeroIsNeutral?: boolean }>
-> = {
-  rawNumber: { numFmt: "0" },
-  decimal: { numFmt: "0.0" },
-  scoreBreakdown: { numFmt: '0" / 100"' },
-  listingProbability: { numFmt: '0" / 100"' },
-  listingCpl: { numFmt: '#,##0.00" {cur}"' },
-  listingConversion: { numFmt: '0.00"%"' },
-  trend: { zeroIsNeutral: true },
-};
-
 const CURRENCY_FORMAT = '#,##0" {cur}"';
 
-/** The numFmt templates above carry `{cur}` where the currency symbol goes, so
- *  one substitution covers both the generic currency format and the per-
- *  renderer overrides. */
+/** The currency template carries `{cur}` where the symbol goes, so a
+ *  multi-currency export substitutes once per row. */
 function withCurrency(numFmt: string, symbol: string): string {
   return numFmt.replace("{cur}", symbol);
+}
+
+/** The mantissa an Excel number format needs for `count` decimal places:
+ *  `0`, `0.0`, `0.00` … */
+function mantissa(count: number): string {
+  return count > 0 ? `0.${"0".repeat(count)}` : "0";
 }
 
 function quoteLiteral(text: string): string {
@@ -123,8 +109,6 @@ function numericFormat<TData extends RowData>(
   col: SchemaColumn<TData>,
   currencySymbol: string,
 ): string {
-  const override = RENDERER_OVERRIDES[col.type.cellRenderer ?? ""]?.numFmt;
-  if (override) return withCurrency(override, currencySymbol);
   if (col.type.ratioStored) return "0%";
   const prefix = col.type.formatPrefix;
   // A euro prefix and `numberFormat: "currency"` describe the same cell — the
@@ -133,12 +117,19 @@ function numericFormat<TData extends RowData>(
   if (col.numberFormat === "currency" || prefix?.includes("€")) {
     return withCurrency(CURRENCY_FORMAT, currencySymbol);
   }
-  if (col.numberFormat === "percent") return '0.0"%"';
-  if (col.numberFormat === "decimal") return "0.0";
+  // `decimals` is the column's own precision; each format carries the place
+  // count it reads as by default. A conversion rate below 1% is the case that
+  // forces this to be expressible: `#,##0"%"` prints every one of them as 0%.
+  const decimals = col.decimals;
+  if (col.numberFormat === "percent") return `${mantissa(decimals ?? 1)}"%"`;
+  if (col.numberFormat === "decimal") return mantissa(decimals ?? 1);
+  if (col.numberFormat === "integer") return "0";
+  const grouped =
+    decimals && decimals > 0 ? `#,##0.${"0".repeat(decimals)}` : "#,##0";
   const suffix = col.type.formatSuffix;
-  if (prefix) return `${quoteLiteral(prefix)}#,##0`;
-  if (suffix) return `#,##0${quoteLiteral(suffix)}`;
-  return "#,##0";
+  if (prefix) return `${quoteLiteral(prefix)}${grouped}`;
+  if (suffix) return `${grouped}${quoteLiteral(suffix)}`;
+  return grouped;
 }
 
 // A date cell carries a calendar day, not an instant, so it resolves through
@@ -166,12 +157,6 @@ function colorFor<TData extends RowData>(
   const colors = ctx.colorsFor(col.id);
   if (!colors) return undefined;
   if (typeof value === "number") {
-    if (
-      value === 0 &&
-      RENDERER_OVERRIDES[col.type.cellRenderer ?? ""]?.zeroIsNeutral
-    ) {
-      return NEUTRAL_ZERO;
-    }
     return colors.thresholds
       ? resolveThresholdColor(value, colors.thresholds)
       : undefined;

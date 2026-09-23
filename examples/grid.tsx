@@ -14,7 +14,11 @@ import {
   selectExportColumns,
 } from "../src";
 import { DataGrid } from "../src/react";
-import { ColumnTypes } from "./column-types";
+import {
+  ColumnTypes,
+  DENSE_CELL_RENDERERS,
+  SKELETON_SHAPES,
+} from "./column-types";
 
 interface Row {
   id: string;
@@ -141,6 +145,8 @@ export function ControlledGrid({
         numberFormatter={{ number: (v, o) => v.toLocaleString("en-GB", o) }}
         reorderable
         categoryOf={(id) => CATEGORY[id]}
+        denseCellRenderers={DENSE_CELL_RENDERERS}
+        skeletonShapes={SKELETON_SHAPES}
       />
     </>
   );

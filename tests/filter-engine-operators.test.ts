@@ -6,9 +6,13 @@ import {
   applyView,
   col,
   emptyGridView,
+  FILTER_OP,
   type GridView,
   where,
 } from "../src";
+
+const { gt, gte, lte, is, isNot, contains, isEmpty, isNotEmpty, on } =
+  FILTER_OP;
 
 // Covers empty-value handling, "is empty"/"is not empty" operators,
 // percentage-point entry for ratio-stored columns, and the all/any branches
@@ -69,7 +73,7 @@ describe("literal commas in text filters", () => {
     expect(
       applyView(
         values,
-        filtering(where("name", "is not", "Repair bumper, door")),
+        filtering(where("name", isNot, "Repair bumper, door")),
         textColumns,
       ),
     ).toEqual(values.slice(1));
@@ -85,7 +89,7 @@ describe("literal commas in text filters", () => {
       }),
     ];
     expect(
-      applyView(values, filtering(where("name", "is", "bumper,door")), dynamic),
+      applyView(values, filtering(where("name", is, "bumper,door")), dynamic),
     ).toEqual(values.slice(2));
   });
 });
@@ -93,33 +97,33 @@ describe("literal commas in text filters", () => {
 describe("empty-value handling (#5)", () => {
   test("a numeric comparison excludes rows with an empty value", () => {
     // Only 'a' (100). 'b' has a null score and must NOT slip through.
-    expect(run(filtering(where("score", ">", "50")))).toEqual(["a"]);
+    expect(run(filtering(where("score", gt, "50")))).toEqual(["a"]);
   });
 
   test("a scalar text 'is not' excludes rows with an empty value", () => {
     // 'b' has an empty name and is excluded despite not equalling "alpha".
-    expect(run(filtering(where("name", "is not", "alpha")))).toEqual(["c"]);
+    expect(run(filtering(where("name", isNot, "alpha")))).toEqual(["c"]);
   });
 });
 
 describe("'is empty' / 'is not empty' operators (#6)", () => {
   test("'is empty' matches only rows with an empty value", () => {
-    expect(run(filtering(where("score", "is empty")))).toEqual(["b"]);
+    expect(run(filtering(where("score", isEmpty)))).toEqual(["b"]);
   });
 
   test("'is not empty' matches only rows with a value", () => {
-    expect(run(filtering(where("score", "is not empty")))).toEqual(["a", "c"]);
+    expect(run(filtering(where("score", isNotEmpty)))).toEqual(["a", "c"]);
   });
 });
 
 describe("percentage-point entry for ratio columns (#7)", () => {
   test("'> 50' (points) compares against the stored 0..1 fraction", () => {
     // 50% → 0.5. Only 'a' (0.6). 'b' (0.4) is below; 'c' (null) excluded.
-    expect(run(filtering(where("ratio", ">", "50")))).toEqual(["a"]);
+    expect(run(filtering(where("ratio", gt, "50")))).toEqual(["a"]);
   });
 
   test("'≥ 40' (points) is inclusive of the equal fraction", () => {
-    expect(run(filtering(where("ratio", "≥", "40")))).toEqual(["a", "b"]);
+    expect(run(filtering(where("ratio", gte, "40")))).toEqual(["a", "b"]);
   });
 });
 
@@ -128,7 +132,7 @@ describe("all / any (#1, #2, #3)", () => {
     expect(
       run(
         filtering(
-          all(where("score", ">", "50"), where("name", "contains", "beta")),
+          all(where("score", gt, "50"), where("name", contains, "beta")),
         ),
       ),
     ).toEqual([]);
@@ -138,7 +142,7 @@ describe("all / any (#1, #2, #3)", () => {
     expect(
       run(
         filtering(
-          any(where("score", ">", "50"), where("name", "contains", "beta")),
+          any(where("score", gt, "50"), where("name", contains, "beta")),
         ),
       ),
     ).toEqual(["a", "c"]);
@@ -147,9 +151,7 @@ describe("all / any (#1, #2, #3)", () => {
   test("`any` over one column is the multi-select case", () => {
     expect(
       run(
-        filtering(
-          any(where("name", "is", "alpha"), where("name", "is", "beta")),
-        ),
+        filtering(any(where("name", is, "alpha"), where("name", is, "beta"))),
       ),
     ).toEqual(["a", "c"]);
   });
@@ -159,14 +161,14 @@ describe("all / any (#1, #2, #3)", () => {
     expect(
       run(
         filtering(
-          all(where("name", "contains", "a"), where("name", "is not", "alpha")),
+          all(where("name", contains, "a"), where("name", isNot, "alpha")),
         ),
       ),
     ).toEqual(["c"]);
   });
 
   test("a bare condition needs no branch around it", () => {
-    expect(run(filtering(where("score", ">", "50")))).toEqual(["a"]);
+    expect(run(filtering(where("score", gt, "50")))).toEqual(["a"]);
   });
 });
 
@@ -177,8 +179,8 @@ describe("nested branches", () => {
       run(
         filtering(
           all(
-            where("score", "is not empty"),
-            any(where("name", "is", "alpha"), where("name", "is", "beta")),
+            where("score", isNotEmpty),
+            any(where("name", is, "alpha"), where("name", is, "beta")),
           ),
         ),
       ),
@@ -190,8 +192,8 @@ describe("nested branches", () => {
       run(
         filtering(
           any(
-            all(where("score", ">", "50"), where("name", "is", "alpha")),
-            where("name", "is", "beta"),
+            all(where("score", gt, "50"), where("name", is, "alpha")),
+            where("name", is, "beta"),
           ),
         ),
       ),
@@ -211,9 +213,7 @@ describe("a branch with no children matches everything", () => {
   });
 
   test("an empty branch nested in an `all` does not exclude every row", () => {
-    expect(run(filtering(all(where("score", ">", "50"), any())))).toEqual([
-      "a",
-    ]);
+    expect(run(filtering(all(where("score", gt, "50"), any())))).toEqual(["a"]);
   });
 });
 
@@ -237,7 +237,7 @@ describe("operators a column does not define", () => {
     // "on" is a date operator. It compares nothing here, but a row whose value
     // is not a number must not pass a numeric filter it never satisfied.
     expect(
-      applyView(mixedRows, filtering(where("num", "on", "0")), mixed),
+      applyView(mixedRows, filtering(where("num", on, "0")), mixed),
     ).toEqual([{ num: 5 }, { num: 0 }]);
   });
 
@@ -258,12 +258,12 @@ describe("operators a column does not define", () => {
     ];
     const enumRows: Enm[] = [{ enm: "a" }, { enm: "" }, { enm: null }];
     expect(
-      applyView(enumRows, filtering(where("enm", "is", ",")), enumCols),
+      applyView(enumRows, filtering(where("enm", is, ",")), enumCols),
     ).toEqual([{ enm: "a" }]);
   });
 
   test("an unknown column is skipped rather than excluding every row", () => {
-    expect(run(filtering(where("nosuch", "is", "x")))).toEqual(["a", "b", "c"]);
+    expect(run(filtering(where("nosuch", is, "x")))).toEqual(["a", "b", "c"]);
   });
 });
 
@@ -275,8 +275,26 @@ describe("search combines with the filter", () => {
       run({
         ...emptyGridView(),
         search: "beta",
-        filter: any(where("score", ">", "50"), where("name", "is", "beta")),
+        filter: any(where("score", gt, "50"), where("name", is, "beta")),
       }),
     ).toEqual(["c"]);
+  });
+});
+
+// FILTER_OP is a naming affordance over the wire format, not a second format:
+// the stored op is still the symbol, so a view built either way is identical
+// and every persisted view keeps loading.
+describe("FILTER_OP", () => {
+  test("a named operator is the symbol it stands for", () => {
+    expect(FILTER_OP.lte).toBe("≤");
+    expect(where("price", FILTER_OP.lte, "1")).toEqual(
+      where("price", lte, "1"),
+    );
+  });
+
+  test("every operator the type allows has a name", () => {
+    const named = new Set<string>(Object.values(FILTER_OP));
+    for (const op of ["=", "≠", ">", "<", "≥", "≤", "is", "is not"])
+      expect(named.has(op)).toBe(true);
   });
 });

@@ -7,6 +7,7 @@ import type {
   NumberFormat,
   NumericUnit,
 } from "./column-vocabulary";
+import { FILTER_OP } from "./column-vocabulary";
 import type { EnumColorMap } from "./enum-color";
 import type { AppCellContext, AppColumnDef, AppSortFn } from "./tanstack";
 import type { ThresholdList } from "./threshold";
@@ -48,6 +49,7 @@ export interface SchemaColumn<TData extends RowData> {
   enumValues?: readonly string[];
   enumColors?: EnumColorMap;
   numberFormat?: NumberFormat;
+  decimals?: number;
   sortingFn?: AppSortFn<TData>;
   cellTint?: (row: TData) => string | undefined;
 }
@@ -83,6 +85,7 @@ interface ColDef<TData extends RowData> {
   enumValues?: readonly string[];
   enumColors?: EnumColorMap;
   numberFormat?: NumberFormat;
+  decimals?: number;
   sortingFn?: AppSortFn<TData>;
   cellTint?: (row: TData) => string | undefined;
 }
@@ -133,7 +136,8 @@ export function col<TData extends RowData>(
     sampleValue: def.sampleValue,
     enumValues: def.enumValues,
     enumColors: def.enumColors,
-    numberFormat: def.numberFormat,
+    numberFormat: def.numberFormat ?? def.type.numberFormat,
+    decimals: def.decimals ?? def.type.decimals,
     unit: def.unit ?? def.type.unit,
     sortingFn: def.sortingFn,
     cellTint: def.cellTint,
@@ -143,13 +147,15 @@ export function col<TData extends RowData>(
 export function defaultOperatorsForType(
   filterType: ColumnType["filterType"],
 ): readonly FilterOp[] {
+  const { eq, ne, gt, lt, gte, lte } = FILTER_OP;
+  const { is, isNot, contains } = FILTER_OP;
+  const { isEmpty, isNotEmpty } = FILTER_OP;
+  const { on, before, after, between } = FILTER_OP;
   if (filterType === "numeric")
-    return ["=", "≠", ">", "<", "≥", "≤", "is empty", "is not empty"];
-  if (filterType === "enum")
-    return ["is", "is not", "is empty", "is not empty"];
-  if (filterType === "text")
-    return ["is", "is not", "contains", "is empty", "is not empty"];
-  if (filterType === "date") return ["on", "before", "after", "between"];
+    return [eq, ne, gt, lt, gte, lte, isEmpty, isNotEmpty];
+  if (filterType === "enum") return [is, isNot, isEmpty, isNotEmpty];
+  if (filterType === "text") return [is, isNot, contains, isEmpty, isNotEmpty];
+  if (filterType === "date") return [on, before, after, between];
   return [];
 }
 

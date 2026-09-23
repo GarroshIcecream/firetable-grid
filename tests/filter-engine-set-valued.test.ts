@@ -1,6 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import { ColumnTypes } from "../examples/column-types";
-import { applyView, col, emptyGridView, type GridView, where } from "../src";
+import {
+  applyView,
+  col,
+  emptyGridView,
+  FILTER_OP,
+  type FilterOp,
+  type GridView,
+  where,
+} from "../src";
+
+const { is, isNot } = FILTER_OP;
 
 // A set-valued enum column holds MULTIPLE values per row (comma-joined via
 // getFilterValue). Matching is set intersection, not scalar equality — this is
@@ -22,35 +32,33 @@ const rows: Row[] = [
   { id: "c", actions: [] },
 ];
 
-const view = (op: string, value: string): GridView => ({
+const view = (op: FilterOp, value: string): GridView => ({
   ...emptyGridView(),
-  filter: where("recommendedActions", op as never, value),
+  filter: where("recommendedActions", op, value),
 });
 
 const ids = (result: Row[]) => result.map((r) => r.id);
 
 describe("set-valued enum filter", () => {
   test("'is' matches rows containing the single selected action", () => {
-    expect(ids(applyView(rows, view("is", "addPhotos"), columns))).toEqual([
-      "a",
-    ]);
+    expect(ids(applyView(rows, view(is, "addPhotos"), columns))).toEqual(["a"]);
   });
 
   test("'is' with multiple selected matches rows containing ANY of them", () => {
     expect(
-      ids(applyView(rows, view("is", "addPhotos,improveTitle"), columns)),
+      ids(applyView(rows, view(is, "addPhotos,improveTitle"), columns)),
     ).toEqual(["a", "b"]);
   });
 
   test("'is not' excludes rows containing any selected action", () => {
-    expect(ids(applyView(rows, view("is not", "addPhotos"), columns))).toEqual([
+    expect(ids(applyView(rows, view(isNot, "addPhotos"), columns))).toEqual([
       "b",
       "c",
     ]);
   });
 
   test("empty-action rows never match an 'is' condition", () => {
-    expect(ids(applyView(rows, view("is", "reducePrice"), columns))).toEqual([
+    expect(ids(applyView(rows, view(is, "reducePrice"), columns))).toEqual([
       "a",
     ]);
   });

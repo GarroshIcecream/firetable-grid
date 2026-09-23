@@ -5,12 +5,15 @@ import {
   any,
   applyView,
   emptyGridView,
+  FILTER_OP,
   type GridView,
   hiddenColumnIds,
   isColumnLayoutEmpty,
   isGridViewEmpty,
   where,
 } from "../src";
+
+const { lte, is } = FILTER_OP;
 
 // The shape this replaced exposed a shared frozen `EMPTY_FILTER_AST` whose
 // documented spread copied array *references*, so one `push` downstream
@@ -32,7 +35,7 @@ describe("emptyGridView()", () => {
     const b = emptyGridView();
 
     a.sort.push({ field: "price", dir: "desc" });
-    a.filter = where("fuel", "is", "diesel");
+    a.filter = where("fuel", is, "diesel");
     a.search = "estate";
     a.group = { field: "make" };
 
@@ -59,7 +62,7 @@ describe("isGridViewEmpty", () => {
   test("any one field being set makes the view non-empty", () => {
     const cases: Array<Partial<GridView>> = [
       { search: "estate" },
-      { filter: where("price", "≤", "1") },
+      { filter: where("price", lte, "1") },
       { sort: [{ field: "price", dir: "asc" }] },
       { group: { field: "make" } },
     ];
@@ -76,8 +79,8 @@ describe("a view is plain JSON", () => {
     const view: GridView = {
       search: "estate",
       filter: all(
-        where("price", "≤", "25000"),
-        any(where("fuel", "is", "diesel"), where("fuel", "is", "hybrid")),
+        where("price", lte, "25000"),
+        any(where("fuel", is, "diesel"), where("fuel", is, "hybrid")),
       ),
       sort: [
         { field: "price", dir: "desc" },

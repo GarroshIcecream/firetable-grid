@@ -9,11 +9,14 @@ import {
   buildExportFilename,
   col,
   emptyGridView,
+  FILTER_OP,
   type GridView,
   toColumnDefs,
   where,
 } from "../src";
 import { ColumnTypes } from "./column-types";
+
+const { lte, is } = FILTER_OP;
 
 interface Row {
   name: string;
@@ -35,8 +38,8 @@ export const columnDefs = toColumnDefs(columns);
 const view: GridView = {
   search: "estate",
   filter: all(
-    where("price", "≤", "25000"),
-    any(where("fuel", "is", "diesel"), where("fuel", "is", "hybrid")),
+    where("price", lte, "25000"),
+    any(where("fuel", is, "diesel"), where("fuel", is, "hybrid")),
   ),
   sort: [{ field: "price", dir: "asc" }],
   group: { field: "fuel" },

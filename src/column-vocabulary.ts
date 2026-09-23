@@ -24,22 +24,25 @@ export type NumericUnit =
 
 export type NumberFormat = "currency" | "percent" | "decimal" | "integer";
 export type CellAlignment = "start" | "center" | "end";
-export type FilterOp =
-  | "="
-  | "≠"
-  | ">"
-  | "<"
-  | "≥"
-  | "≤"
-  | "is"
-  | "is not"
-  | "contains"
-  | "is empty"
-  | "is not empty"
-  | "on"
-  | "before"
-  | "after"
-  | "between";
+export const FILTER_OP = {
+  eq: "=",
+  ne: "≠",
+  gt: ">",
+  lt: "<",
+  gte: "≥",
+  lte: "≤",
+  is: "is",
+  isNot: "is not",
+  contains: "contains",
+  isEmpty: "is empty",
+  isNotEmpty: "is not empty",
+  on: "on",
+  before: "before",
+  after: "after",
+  between: "between",
+} as const;
+
+export type FilterOp = (typeof FILTER_OP)[keyof typeof FILTER_OP];
 
 export const AGGREGATION_TYPES = ["avg", "sum", "min", "max", "count"] as const;
 export type AggregationType = (typeof AGGREGATION_TYPES)[number];
@@ -63,6 +66,8 @@ export interface ColumnType {
   readonly cellAlignment?: CellAlignment;
   readonly formatPrefix?: string;
   readonly formatSuffix?: string;
+  readonly numberFormat?: NumberFormat;
+  readonly decimals?: number;
   readonly colorByThreshold?: boolean;
   readonly thresholdOptIn?: boolean;
   readonly enumColorOptIn?: boolean;

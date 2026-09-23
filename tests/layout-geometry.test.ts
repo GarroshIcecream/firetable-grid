@@ -56,12 +56,12 @@ describe("cellPaddingClass", () => {
     expect(cellPaddingClass({ cellRenderer: "text" })).toBe(CELL_PADDING_CLASS);
   });
 
-  test("the built-in narrow renderers get the tight gutter", () => {
+  test("no renderer is dense unless you name it", () => {
     expect(cellPaddingClass({ cellRenderer: "indexCell" })).toBe(
-      DENSE_CELL_PADDING_CLASS,
+      CELL_PADDING_CLASS,
     );
     expect(cellPaddingClass({ cellRenderer: "thumbnail" })).toBe(
-      DENSE_CELL_PADDING_CLASS,
+      CELL_PADDING_CLASS,
     );
   });
 
@@ -82,18 +82,20 @@ describe("cellPaddingClass", () => {
       aggregatable: false,
     };
     expect(cellPaddingClass(nullRenderer)).toBe(CELL_PADDING_CLASS);
-    expect(cellPaddingClass(ColumnTypes.INDEX)).toBe(DENSE_CELL_PADDING_CLASS);
+    expect(cellPaddingClass(ColumnTypes.INDEX)).toBe(CELL_PADDING_CLASS);
     expect(cellPaddingClass(ColumnTypes.TEXT)).toBe(CELL_PADDING_CLASS);
   });
 
-  test("the dense set is overridable", () => {
+  test("the dense set is the catalogue's to name", () => {
     const mine = new Set(["sparkline"]);
     expect(cellPaddingClass({ cellRenderer: "sparkline" }, mine)).toBe(
       DENSE_CELL_PADDING_CLASS,
     );
-    // Overriding replaces the defaults rather than adding to them.
     expect(cellPaddingClass({ cellRenderer: "indexCell" }, mine)).toBe(
       CELL_PADDING_CLASS,
+    );
+    expect(cellPaddingClass(ColumnTypes.INDEX, new Set(["indexCell"]))).toBe(
+      DENSE_CELL_PADDING_CLASS,
     );
   });
 });

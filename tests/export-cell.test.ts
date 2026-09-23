@@ -1,15 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { ColumnTypes } from "../examples/column-types";
 import {
-  ATTENTION_DEFAULT_THRESHOLDS,
   col,
-  DAYS_DEFAULT_THRESHOLDS,
   type ExportCellContext,
   exportCellText,
   PLAIN_EXPORT_CONTEXT,
   resolveExportCell,
   type SchemaColumn,
-  TREND_DEFAULT_THRESHOLDS,
+  type ThresholdList,
 } from "../src";
 
 type Row = {
@@ -87,6 +85,23 @@ const emptyRow: Row = {
   fairPriceZone: null,
 };
 
+const DAYS_THRESHOLDS: ThresholdList = [
+  { upTo: 30, color: { hue: "green", level: "dark" } },
+  { upTo: 60, color: { hue: "orange", level: "dark" } },
+  { color: { hue: "red", level: "dark" } },
+];
+
+const ATTENTION_THRESHOLDS: ThresholdList = [
+  { upTo: 0.33, color: { hue: "green", level: "dark" } },
+  { upTo: 0.66, color: { hue: "orange", level: "dark" } },
+  { color: { hue: "red", level: "dark" } },
+];
+
+const TREND_THRESHOLDS: ThresholdList = [
+  { upTo: 0, color: { hue: "red", level: "dark" } },
+  { color: { hue: "green", level: "dark" } },
+];
+
 const CURRENCY_FMT = '#,##0" €"';
 
 const noColours: ExportCellContext = {
@@ -96,10 +111,7 @@ const noColours: ExportCellContext = {
 };
 
 function withColours(
-  map: Record<
-    string,
-    { thresholds?: typeof DAYS_DEFAULT_THRESHOLDS; enumColors?: never }
-  >,
+  map: Record<string, { thresholds?: ThresholdList; enumColors?: never }>,
 ): ExportCellContext {
   return {
     colorsFor: (id) => map[id],
@@ -297,9 +309,10 @@ describe("resolveExportCell — number formats come from column metadata", () =>
   });
 
   test("conversion rates keep two decimals instead of rounding to whole percent", () => {
-    // Portal view→lead rates sit below 1 %, and the grid deliberately renders
-    // them with two decimals ("a real zero must read 0.00 %"). `#,##0"%"`
-    // would print every one of them as 0%.
+    // View-to-lead rates sit below 1%, and the grid renders them with two
+    // decimals ("a real zero must read 0.00 %"). `#,##0"%"` would print every
+    // one of them as 0%, so LISTING_RATE declares `decimals: 2`. The suffix
+    // stays quoted either way, so Excel does not scale the value.
     const conversion = col<Row>({
       id: "totalViewToLead30d",
       label: "View to lead",
@@ -314,7 +327,39 @@ describe("resolveExportCell — number formats come from column metadata", () =>
     expect(cell.numFmt).toBe('0.00"%"');
   });
 
-  test("rawNumber keeps no thousands separator, decimal keeps one place", () => {
+  test("a column's own decimals override the type's", () => {
+    const coarse = col<Row>({
+      id: "totalViewToLead30d",
+      label: "View to lead",
+      type: ColumnTypes.LISTING_RATE,
+      decimals: 0,
+    });
+    expect(
+      resolveExportCell(
+        { totalViewToLead30d: 0.25 } as unknown as Row,
+        coarse,
+        noColours,
+      ).numFmt,
+    ).toBe('0"%"');
+  });
+
+  test("decimals reaches a prefix/suffix format too", () => {
+    const weight = col<Row>({
+      id: "totalViewToLead30d",
+      label: "Weight",
+      type: ColumnTypes.KM,
+      decimals: 1,
+    });
+    expect(
+      resolveExportCell(
+        { totalViewToLead30d: 12.25 } as unknown as Row,
+        weight,
+        noColours,
+      ).numFmt,
+    ).toBe('#,##0.0" km"');
+  });
+
+  test("integer omits the thousands separator, decimal keeps one place", () => {
     expect(
       resolveExportCell({ ...emptyRow, year: 2020 }, columns.year, noColours)
         .numFmt,
@@ -371,7 +416,7 @@ describe("resolveExportCell — colour follows the Column Registry", () => {
 
   test("thresholds paint the bucket the value falls into", () => {
     const ctx = withColours({
-      daysOnDisplayCalc: { thresholds: DAYS_DEFAULT_THRESHOLDS },
+      daysOnDisplayCalc: { thresholds: DAYS_THRESHOLDS },
     });
     expect(
       resolveExportCell(
@@ -391,7 +436,7 @@ describe("resolveExportCell — colour follows the Column Registry", () => {
 
   test("the upTo bound is inclusive", () => {
     const ctx = withColours({
-      daysOnDisplayCalc: { thresholds: DAYS_DEFAULT_THRESHOLDS },
+      daysOnDisplayCalc: { thresholds: DAYS_THRESHOLDS },
     });
     expect(
       resolveExportCell(
@@ -405,7 +450,7 @@ describe("resolveExportCell — colour follows the Column Registry", () => {
   test("progress thresholds compare against the stored fraction", () => {
     const ctx = withColours({
       attentionScoreTotalRelative: {
-        thresholds: ATTENTION_DEFAULT_THRESHOLDS,
+        thresholds: ATTENTION_THRESHOLDS,
       },
     });
     expect(
@@ -417,16 +462,16 @@ describe("resolveExportCell — colour follows the Column Registry", () => {
     ).toEqual({ hue: "green", level: "dark" });
   });
 
-  test("a trend of exactly zero is the neutral no-change tone, not a bucket", () => {
-    // The grid greys a zero trend regardless of thresholds; TREND's default
-    // list would otherwise paint it red (`upTo: 0`).
+  test("a trend of exactly zero is inside the upTo: 0 bucket", () => {
+    // Inclusive bounds: 0 matches `{ upTo: 0 }`. A cell renderer that greys
+    // out "no change" is free to special-case zero; the export does not.
     const ctx = withColours({
-      pctDelta: { thresholds: TREND_DEFAULT_THRESHOLDS },
+      pctDelta: { thresholds: TREND_THRESHOLDS },
     });
     expect(
       resolveExportCell({ ...emptyRow, pctDelta: 0 }, columns.pctDelta, ctx)
         .color,
-    ).toEqual({ hue: "gray", level: "dark" });
+    ).toEqual({ hue: "red", level: "dark" });
     expect(
       resolveExportCell({ ...emptyRow, pctDelta: -3 }, columns.pctDelta, ctx)
         .color,

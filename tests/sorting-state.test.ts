@@ -27,7 +27,7 @@ describe("sorting-state", () => {
     ]);
   });
 
-  test("normalizeSort coerces an unrecognized direction and caps the count", () => {
+  test("normalizeSort coerces an unrecognized direction to asc", () => {
     // A stored view written against an older schema can carry anything here;
     // it must degrade to ascending rather than sorting by a garbage value.
     const input = [
@@ -37,10 +37,11 @@ describe("sorting-state", () => {
       { field: "mileage", dir: "desc" },
     ] as unknown as SortRule[];
 
-    expect(normalizeSort(input, sortableFields, 3)).toEqual([
+    expect(normalizeSort(input, sortableFields)).toEqual([
       { field: "price", dir: "desc" },
       { field: "make", dir: "asc" },
       { field: "year", dir: "asc" },
+      { field: "mileage", dir: "desc" },
     ]);
   });
 
@@ -132,7 +133,7 @@ describe("sorting-state", () => {
     );
   });
 
-  test("toggleSort refuses to add a new column once multi-sort is at the cap", () => {
+  test("toggleSort does not cap how many columns join a multi-sort", () => {
     const input: SortRule[] = [
       { field: "price", dir: "asc" },
       { field: "make", dir: "asc" },
@@ -140,41 +141,12 @@ describe("sorting-state", () => {
     ];
 
     expect(
-      toggleSort(input, "mileage", {
-        multi: true,
-        sortableFields,
-        maxSortColumns: 3,
-      }),
-    ).toEqual(input);
-  });
-
-  test("toggleSort still cycles an already-sorted column at the cap", () => {
-    const full: SortRule[] = [
+      toggleSort(input, "mileage", { multi: true, sortableFields }),
+    ).toEqual([
       { field: "price", dir: "asc" },
       { field: "make", dir: "asc" },
       { field: "year", dir: "asc" },
-    ];
-
-    const flipped = toggleSort(full, "make", {
-      multi: true,
-      sortableFields,
-      maxSortColumns: 3,
-    });
-    expect(flipped).toEqual([
-      { field: "price", dir: "asc" },
-      { field: "make", dir: "desc" },
-      { field: "year", dir: "asc" },
-    ]);
-
-    expect(
-      toggleSort(flipped, "make", {
-        multi: true,
-        sortableFields,
-        maxSortColumns: 3,
-      }),
-    ).toEqual([
-      { field: "price", dir: "asc" },
-      { field: "year", dir: "asc" },
+      { field: "mileage", dir: "asc" },
     ]);
   });
 });

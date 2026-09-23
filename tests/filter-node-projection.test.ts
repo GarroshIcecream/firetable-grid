@@ -4,10 +4,13 @@ import {
   all,
   any,
   countConditions,
+  FILTER_OP,
   type FilterCondition,
   projectFilter,
   where,
 } from "../src";
+
+const { gt, lte, is } = FILTER_OP;
 
 // Narrowing a filter is a real operation - a chat assistant applying a model's
 // intent, a column-access projection stripping fields the viewer cannot see -
@@ -25,16 +28,16 @@ const drop = (field: string) => (c: FilterCondition) => c.field !== field;
 describe("projectFilter", () => {
   test("a fully kept tree comes back unchanged", () => {
     const tree = all(
-      where("price", "≤", "25000"),
-      any(where("fuel", "is", "diesel"), where("fuel", "is", "hybrid")),
+      where("price", lte, "25000"),
+      any(where("fuel", is, "diesel"), where("fuel", is, "hybrid")),
     );
     expect(projectFilter(tree, keepAll)).toEqual(tree);
   });
 
   test("drops the conditions the caller rejects", () => {
-    const tree = all(where("fuel", "is", "diesel"), where("denied", "is", "x"));
+    const tree = all(where("fuel", is, "diesel"), where("denied", is, "x"));
     expect(projectFilter(tree, drop("denied"))).toEqual(
-      where("fuel", "is", "diesel"),
+      where("fuel", is, "diesel"),
     );
   });
 
@@ -42,39 +45,39 @@ describe("projectFilter", () => {
     // The old shape's central failure: group 0 disappears and group 1 inherits
     // its operator. Here the surviving `any` carries its own kind with it.
     const tree = all(
-      any(where("denied", "is", "x"), where("denied", "is", "y")),
-      any(where("fuel", "is", "diesel"), where("fuel", "is", "hybrid")),
+      any(where("denied", is, "x"), where("denied", is, "y")),
+      any(where("fuel", is, "diesel"), where("fuel", is, "hybrid")),
     );
     expect(projectFilter(tree, drop("denied"))).toEqual(
-      any(where("fuel", "is", "diesel"), where("fuel", "is", "hybrid")),
+      any(where("fuel", is, "diesel"), where("fuel", is, "hybrid")),
     );
   });
 
   test("unwraps a branch left holding a single child", () => {
     // `any(a)` and `a` select the same rows, so the wrapper is noise.
-    const tree = any(where("fuel", "is", "diesel"), where("denied", "is", "x"));
+    const tree = any(where("fuel", is, "diesel"), where("denied", is, "x"));
     expect(projectFilter(tree, drop("denied"))).toEqual(
-      where("fuel", "is", "diesel"),
+      where("fuel", is, "diesel"),
     );
   });
 
   test("recurses into nested branches", () => {
     const tree = all(
-      where("price", "≤", "25000"),
-      any(where("fuel", "is", "diesel"), where("denied", "is", "x")),
+      where("price", lte, "25000"),
+      any(where("fuel", is, "diesel"), where("denied", is, "x")),
     );
     expect(projectFilter(tree, drop("denied"))).toEqual(
-      all(where("price", "≤", "25000"), where("fuel", "is", "diesel")),
+      all(where("price", lte, "25000"), where("fuel", is, "diesel")),
     );
   });
 
   test("returns null when nothing survives", () => {
-    const tree = all(where("denied", "is", "x"), where("denied", "is", "y"));
+    const tree = all(where("denied", is, "x"), where("denied", is, "y"));
     expect(projectFilter(tree, drop("denied"))).toBe(null);
   });
 
   test("projects a bare condition, with no branch around it", () => {
-    const leaf = where("fuel", "is", "diesel");
+    const leaf = where("fuel", is, "diesel");
     expect(projectFilter(leaf, keepAll)).toEqual(leaf);
     expect(projectFilter(leaf, drop("fuel"))).toBe(null);
   });
@@ -89,10 +92,10 @@ describe("countConditions", () => {
     expect(
       countConditions(
         all(
-          where("price", "≤", "25000"),
+          where("price", lte, "25000"),
           any(
-            where("fuel", "is", "diesel"),
-            all(where("year", ">", "2020"), where("make", "is", "skoda")),
+            where("fuel", is, "diesel"),
+            all(where("year", gt, "2020"), where("make", is, "skoda")),
           ),
         ),
       ),
@@ -105,6 +108,6 @@ describe("countConditions", () => {
   });
 
   test("a bare condition counts one", () => {
-    expect(countConditions(where("fuel", "is", "diesel"))).toBe(1);
+    expect(countConditions(where("fuel", is, "diesel"))).toBe(1);
   });
 });

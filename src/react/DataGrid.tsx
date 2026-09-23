@@ -48,6 +48,7 @@ import {
   reachedEndOfRows,
   SELECTION_COLUMN_ID,
   SELECTION_COLUMN_WIDTH,
+  type SkeletonShape,
   type VirtualRangeItem,
 } from "../layout";
 import {
@@ -90,8 +91,8 @@ export interface DataGridProps<TData extends RowData> {
    *  which bleeds cell state (an open popover, a focused input) across rows. */
   getRowId?: (row: TData) => string;
 
-  /** Sort by more than one column at once, up to `MAX_SORT_COLUMNS`.
-   *  Shift-click a header to add a column to the sort. On by default. */
+  /** Sort by more than one column at once. Shift-click a header to add a
+   *  column to the sort. On by default. */
   multiSort?: boolean;
 
   /** Resolves a row's group key and label. A function, so it cannot live in
@@ -196,6 +197,17 @@ export interface DataGridProps<TData extends RowData> {
   endReachedThreshold?: number;
 
   wrapCells?: boolean;
+  /**
+   * Renderers that take the tight cell gutter. Empty unless you pass a set.
+   *
+   * Hold this in a module constant, not a literal in the JSX: the per-column
+   * cell specs memoize on its identity, so a fresh `new Set()` each render
+   * rebuilds all of them — the work `buildCellSpecs` exists to hoist.
+   */
+  denseCellRenderers?: ReadonlySet<string>;
+  /** Skeleton shape per renderer. Unknown names fall back to `"text"`.
+   *  Same identity rule as `denseCellRenderers`. */
+  skeletonShapes?: Readonly<Record<string, SkeletonShape>>;
   className?: string;
   emptyMessage?: ReactNode;
 }
@@ -267,6 +279,8 @@ export function DataGrid<TData extends RowData>({
   onEndReached,
   endReachedThreshold = 8,
   wrapCells = false,
+  denseCellRenderers,
+  skeletonShapes,
   className,
   emptyMessage = "No rows match the current filter.",
 }: DataGridProps<TData>) {
@@ -382,9 +396,11 @@ export function DataGrid<TData extends RowData>({
       buildCellSpecs<TData, SchemaColumn<TData>>(layout, {
         wrapCells,
         enableSelection: selectable,
+        denseCellRenderers,
+        skeletonShapes,
         metaOf: (column) => column,
       }),
-    [layout, wrapCells, selectable],
+    [layout, wrapCells, selectable, denseCellRenderers, skeletonShapes],
   );
 
   // Depend on the two fields that narrow rows, not on the whole view: a header
@@ -619,17 +635,17 @@ export function DataGrid<TData extends RowData>({
   );
 
   // Delegates to the engine's own `toggleSort` rather than repeating the
-  // asc → desc → off cycle here: that helper also caps the sort at
-  // MAX_SORT_COLUMNS and drops fields that are no longer sortable, which a
-  // hand-rolled single-column toggle silently could not do.
+  // asc → desc → off cycle here: that helper also drops fields that are no
+  // longer sortable, which a hand-rolled single-column toggle silently could
+  // not do.
   const onHeaderClick = (column: SchemaColumn<TData>, additive: boolean) => {
     const next = toggleSort(sort, column.id, {
       multi: multiSort && additive,
       sortableFields,
     });
-    // A click the sort refuses - an unsortable column, or a new one at the cap
-    // - must not publish a new view: every consumer would see a change, and
-    // the rows would re-sort, for a state that did not move.
+    // A click the sort refuses - an unsortable column - must not publish a
+    // new view: every consumer would see a change, and the rows would re-sort,
+    // for a state that did not move.
     if (sortRulesEqual(next, sort)) return;
     setView({ ...activeView, sort: next });
   };
@@ -655,7 +671,7 @@ export function DataGrid<TData extends RowData>({
                   }
                   className={cx(
                     "ftg-th",
-                    cellPaddingClass(column.type),
+                    cellPaddingClass(column.type, denseCellRenderers),
                     edgeClass(entry),
                     entry.isPinned && "sticky z-10",
                     column.type.cellAlignment &&

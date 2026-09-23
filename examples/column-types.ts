@@ -10,6 +10,7 @@
 // infer a column's renderer and filter behaviour from the type you hand it.
 
 import type { ColumnType } from "../src";
+import type { SkeletonShape } from "../src/layout";
 
 export const ColumnTypes = {
   INDEX: {
@@ -62,6 +63,7 @@ export const ColumnTypes = {
     sortable: true,
     groupable: false,
     aggregatable: true,
+    numberFormat: "integer",
     thresholdOptIn: true,
     sampleValue: 42,
   },
@@ -72,6 +74,7 @@ export const ColumnTypes = {
     sortable: true,
     groupable: false,
     aggregatable: true,
+    numberFormat: "decimal",
     thresholdOptIn: true,
     sampleValue: 8.5,
   },
@@ -172,6 +175,10 @@ export const ColumnTypes = {
     groupable: false,
     aggregatable: false,
     formatSuffix: "%",
+    // Rates sit below 1% often enough that a whole-percent format prints
+    // most of them as 0%, and a real zero has to read 0.00%.
+    numberFormat: "percent",
+    decimals: 2,
     sampleValue: 2.01,
   },
   EVIDENCE_CHIPS: {
@@ -201,3 +208,32 @@ export const ColumnTypes = {
     enumColorOptIn: true,
   },
 } as const satisfies Record<string, ColumnType>;
+
+/** Renderers in this catalogue that hold a fixed-size graphic, not text —
+ *  they take the tight cell gutter. Pass to `cellPaddingClass` / `<DataGrid>`.
+ *  Both lists below name every renderer this file declares and nothing else,
+ *  so adding a column type means adding its renderer here too. Keep them
+ *  module constants: `<DataGrid>` memoizes its cell specs on their identity. */
+export const DENSE_CELL_RENDERERS: ReadonlySet<string> = new Set(["indexCell"]);
+
+/** Skeleton shape per renderer name in this catalogue. Unknown names fall
+ *  back to `"text"` inside `buildCellSpecs`. */
+export const SKELETON_SHAPES: Readonly<Record<string, SkeletonShape>> = {
+  indexCell: "none",
+  accuracyBadge: "pill",
+  daysBadge: "pill",
+  genericBadge: "pill",
+  kmBadge: "pill",
+  evidenceChips: "pill",
+  recommendedActions: "pill",
+  currency: "number",
+  date: "number",
+  decimal: "number",
+  number: "number",
+  rawNumber: "number",
+  trend: "number",
+  attentionProgress: "bar",
+  listingConversion: "bar",
+  link: "text",
+  text: "text",
+};

@@ -7,6 +7,10 @@
 import { StrictMode, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
+  DENSE_CELL_RENDERERS,
+  SKELETON_SHAPES,
+} from "../examples/column-types";
+import {
   type AggregationType,
   all,
   applyView,
@@ -16,6 +20,7 @@ import {
   type CategoryResolver,
   countConditions,
   emptyGridView,
+  FILTER_OP,
   type FilterCondition,
   type FilterNode,
   type FilterOp,
@@ -171,7 +176,7 @@ function App() {
   const [field, setField] = useState(
     columns.find((c) => c.filterable)?.id ?? "",
   );
-  const [op, setOp] = useState<FilterOp>("is");
+  const [op, setOp] = useState<FilterOp>(FILTER_OP.is);
   const [val, setVal] = useState("");
 
   // Order, widths and visibility are part of the view now - the panel on the
@@ -322,7 +327,7 @@ function App() {
                   setField(e.target.value);
                   setOp(
                     (byId.get(e.target.value)?.operators?.[0] ??
-                      "is") as FilterOp,
+                      FILTER_OP.is) as FilterOp,
                   );
                 }}
               >
@@ -489,6 +494,8 @@ function App() {
           reorderable={reorderable}
           categoryOf={byCategory ? categoryOf : undefined}
           wrapCells={wrapCells}
+          denseCellRenderers={DENSE_CELL_RENDERERS}
+          skeletonShapes={SKELETON_SHAPES}
           renderCell={(column, row) => <Cell column={column} row={row} />}
         />
       </div>

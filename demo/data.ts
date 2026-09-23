@@ -2,14 +2,7 @@
 // is that the engine only ever sees `SchemaColumn` descriptions and rows.
 
 import { ColumnTypes } from "../examples/column-types";
-import {
-  ATTENTION_DEFAULT_THRESHOLDS,
-  col,
-  DAYS_DEFAULT_THRESHOLDS,
-  type SchemaColumn,
-  type ThresholdList,
-  TREND_DEFAULT_THRESHOLDS,
-} from "../src";
+import { col, type SchemaColumn, type ThresholdList } from "../src";
 
 export interface Item {
   rowIndex: number;
@@ -96,7 +89,24 @@ const STATUSES = ["active", "clearance", "discontinued", "backorder"];
 const options = (values: readonly string[]) =>
   values.map((value) => ({ value, label: value }));
 
-// A price band, to show a threshold list that is not one of the shipped defaults.
+// Threshold bands live on the column, not in the engine — these are demo-only.
+const DAYS_THRESHOLDS: ThresholdList = [
+  { upTo: 30, color: { hue: "green", level: "dark" } },
+  { upTo: 60, color: { hue: "orange", level: "dark" } },
+  { color: { hue: "red", level: "dark" } },
+];
+
+const TREND_THRESHOLDS: ThresholdList = [
+  { upTo: 0, color: { hue: "red", level: "dark" } },
+  { color: { hue: "green", level: "dark" } },
+];
+
+const QUALITY_THRESHOLDS: ThresholdList = [
+  { upTo: 0.33, color: { hue: "green", level: "dark" } },
+  { upTo: 0.66, color: { hue: "orange", level: "dark" } },
+  { color: { hue: "red", level: "dark" } },
+];
+
 const PRICE_THRESHOLDS: ThresholdList = [
   { upTo: 200, color: { hue: "gray", level: "light" } },
   { upTo: 800, color: { hue: "blue", level: "light" } },
@@ -156,21 +166,21 @@ export function buildColumns(): SchemaColumn<Item>[] {
       label: "In stock",
       type: ColumnTypes.DAYS,
       width: 110,
-      thresholds: DAYS_DEFAULT_THRESHOLDS,
+      thresholds: DAYS_THRESHOLDS,
     }),
     col<Item>({
       id: "marginTrend",
       label: "Margin trend",
       type: ColumnTypes.TREND,
       width: 130,
-      thresholds: TREND_DEFAULT_THRESHOLDS,
+      thresholds: TREND_THRESHOLDS,
     }),
     col<Item>({
       id: "quality",
       label: "Quality",
       type: ColumnTypes.PROGRESS,
       width: 120,
-      thresholds: ATTENTION_DEFAULT_THRESHOLDS,
+      thresholds: QUALITY_THRESHOLDS,
     }),
     col<Item>({
       id: "addedOn",
@@ -215,14 +225,14 @@ export function buildColumns(): SchemaColumn<Item>[] {
       label: "Lead time",
       type: ColumnTypes.DAYS,
       width: 115,
-      thresholds: DAYS_DEFAULT_THRESHOLDS,
+      thresholds: DAYS_THRESHOLDS,
     }),
     col<Item>({
       id: "returnsRate",
       label: "Returns",
       type: ColumnTypes.PROGRESS,
       width: 120,
-      thresholds: ATTENTION_DEFAULT_THRESHOLDS,
+      thresholds: QUALITY_THRESHOLDS,
     }),
     col<Item>({
       id: "weightKg",

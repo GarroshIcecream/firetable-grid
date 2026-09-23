@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import {
   buildCellSpecs,
   type ColumnLayoutEntry,
-  DEFAULT_SKELETON_SHAPES,
   PINNED_EDGE_BORDER,
   PINNED_INNER_EDGE_SHADOW,
   SELECTION_COLUMN_ID,
@@ -91,29 +90,24 @@ describe("buildCellSpecs", () => {
   });
 
   describe("skeleton shapes", () => {
-    test("resolve from the renderer, falling back to text", () => {
+    test("resolve from the map you pass, falling back to text", () => {
       const [num, unknown] = buildCellSpecs<Row>(
         [
           entry("a", { type: { cellRenderer: "currency" } }),
           entry("b", { type: { cellRenderer: "nope" } }),
         ],
-        opts,
+        { ...opts, skeletonShapes: { currency: "number" } },
       );
-      expect(num.skeletonShape).toBe(DEFAULT_SKELETON_SHAPES.currency);
       expect(num.skeletonShape).toBe("number");
       expect(unknown.skeletonShape).toBe("text");
     });
 
-    test("an override merges over the defaults rather than replacing them", () => {
-      const [mine, stock] = buildCellSpecs<Row>(
-        [
-          entry("a", { type: { cellRenderer: "sparkline" } }),
-          entry("b", { type: { cellRenderer: "currency" } }),
-        ],
-        { ...opts, skeletonShapes: { sparkline: "bar" } },
+    test("an omitted map leaves every renderer as text", () => {
+      const [spec] = buildCellSpecs<Row>(
+        [entry("a", { type: { cellRenderer: "currency" } })],
+        opts,
       );
-      expect(mine.skeletonShape).toBe("bar");
-      expect(stock.skeletonShape).toBe("number");
+      expect(spec.skeletonShape).toBe("text");
     });
   });
 

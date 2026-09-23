@@ -10,6 +10,7 @@ import {
   buildCsvString,
   buildExportFilename,
   emptyGridView,
+  FILTER_OP,
   type GridView,
   resolveThresholdColor,
   sortRowsForExport,
@@ -21,6 +22,8 @@ import {
   buildFlatItems,
   groupSortDirection,
 } from "../src/layout";
+
+const { gt, lte, is } = FILTER_OP;
 
 const rows = buildRows();
 const columns = buildColumns();
@@ -68,7 +71,7 @@ describe("filter conditions", () => {
   test("a numeric bound keeps only rows under it", () => {
     const out = applyView(
       rows,
-      view({ filter: where("price", "≤", "500") }),
+      view({ filter: where("price", lte, "500") }),
       columns,
     );
     expect(out.length).toBeGreaterThan(0);
@@ -79,15 +82,15 @@ describe("filter conditions", () => {
   test("conditions AND together", () => {
     const one = applyView(
       rows,
-      view({ filter: where("category", "is", "Wheels") }),
+      view({ filter: where("category", is, "Wheels") }),
       columns,
     );
     const two = applyView(
       rows,
       view({
         filter: all(
-          where("category", "is", "Wheels"),
-          where("daysInStock", ">", "60"),
+          where("category", is, "Wheels"),
+          where("daysInStock", gt, "60"),
         ),
       }),
       columns,

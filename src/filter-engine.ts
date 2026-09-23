@@ -15,6 +15,7 @@
 import type { RowData } from "@tanstack/react-table";
 import type { SchemaColumn } from "./column-schema";
 import type { FilterOp } from "./column-vocabulary";
+import { FILTER_OP } from "./column-vocabulary";
 import { toYmd } from "./date-grouping";
 import type { GridView } from "./grid-view";
 
@@ -44,10 +45,16 @@ export type FilterNode = FilterCondition | FilterAll | FilterAny;
 //
 // Filters read like the sentence they represent:
 //
+//   const { is, lte } = FILTER_OP;
+//
 //   all(
-//     where("price", "≤", "25000"),
-//     any(where("fuel", "is", "diesel"), where("fuel", "is", "hybrid")),
+//     where("price", lte, "25000"),
+//     any(where("fuel", is, "diesel"), where("fuel", is, "hybrid")),
 //   )
+//
+// The operator a condition stores is still the symbol - "≤" and FILTER_OP.lte
+// are the same value - so a persisted filter stays readable to a human while
+// writing one never means hunting for a glyph.
 
 export function where(
   field: string,
@@ -183,12 +190,12 @@ function toNumber(raw: unknown): number {
 const NUMERIC_COMPARATORS: Partial<
   Record<FilterOp, (n: number, fv: number) => boolean>
 > = {
-  "=": (n, fv) => n === fv,
-  "≠": (n, fv) => n !== fv,
-  ">": (n, fv) => n > fv,
-  "<": (n, fv) => n < fv,
-  "≥": (n, fv) => n >= fv,
-  "≤": (n, fv) => n <= fv,
+  [FILTER_OP.eq]: (n, fv) => n === fv,
+  [FILTER_OP.ne]: (n, fv) => n !== fv,
+  [FILTER_OP.gt]: (n, fv) => n > fv,
+  [FILTER_OP.lt]: (n, fv) => n < fv,
+  [FILTER_OP.gte]: (n, fv) => n >= fv,
+  [FILTER_OP.lte]: (n, fv) => n <= fv,
 };
 
 function compileNumeric<TData extends RowData>(

@@ -19,7 +19,6 @@ export * from "./column-schema";
 export * from "./column-vocabulary";
 export * from "./csv-export";
 export * from "./date-grouping";
-export * from "./default-thresholds";
 export * from "./derived-options";
 export * from "./enum-color";
 export * from "./export-cell";
