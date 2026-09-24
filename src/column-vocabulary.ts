@@ -70,6 +70,9 @@ export interface ColumnType {
   readonly decimals?: number;
   readonly colorByThreshold?: boolean;
   readonly thresholdOptIn?: boolean;
+  /** Exactly 0 means "no change" (a trend, a delta) and colours neutral grey
+   *  instead of taking whichever threshold bucket holds 0. */
+  readonly neutralZero?: boolean;
   readonly enumColorOptIn?: boolean;
   readonly setValued?: boolean;
   readonly ratioStored?: boolean;

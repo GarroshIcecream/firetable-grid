@@ -137,17 +137,40 @@ describe("resolveExportCell — value typing", () => {
       noColours,
     );
     expect(cell.value).toBeInstanceOf(Date);
-    // A date column carries a calendar day, not an instant: the value lands on
-    // LOCAL midnight of the string's YYYY-MM-DD prefix. That is what makes the
-    // workbook agree with `toYmd`, which the filter and grouping paths use —
-    // and ExcelJS writes a Date at its local wall clock, so a UTC-parsed
+    // A datetime is an instant and keeps its time; only the CSV text rounds
+    // to the day (see "exportCellText" below).
+    expect((cell.value as Date).toISOString()).toBe("2026-05-12T08:30:00.000Z");
+    expect(cell.numFmt).toBe("dd mmm yyyy hh:mm");
+  });
+
+  test("a date-only string lands on LOCAL midnight of that day", () => {
+    // ExcelJS writes a Date at its local wall clock, so a UTC-parsed
     // "2026-05-12" would surface as the 11th anywhere west of Greenwich.
+    const cell = resolveExportCell(
+      { ...emptyRow, firstOccurence: "2026-05-12" },
+      columns.firstOccurence,
+      noColours,
+    );
     const value = cell.value as Date;
     expect(value.getFullYear()).toBe(2026);
     expect(value.getMonth()).toBe(4);
     expect(value.getDate()).toBe(12);
     expect(value.getHours()).toBe(0);
     expect(value.getMinutes()).toBe(0);
+    expect(cell.numFmt).toBe("dd mmm yyyy");
+  });
+
+  test("a local datetime string keeps its wall-clock time", () => {
+    const cell = resolveExportCell(
+      { ...emptyRow, firstOccurence: "2026-05-12T08:30" },
+      columns.firstOccurence,
+      noColours,
+    );
+    const value = cell.value as Date;
+    expect(value.getDate()).toBe(12);
+    expect(value.getHours()).toBe(8);
+    expect(value.getMinutes()).toBe(30);
+    expect(exportCellText(cell)).toBe("2026-05-12");
   });
 
   test("an unparseable date degrades to null rather than a broken cell", () => {
@@ -462,19 +485,26 @@ describe("resolveExportCell — colour follows the Column Registry", () => {
     ).toEqual({ hue: "green", level: "dark" });
   });
 
-  test("a trend of exactly zero is inside the upTo: 0 bucket", () => {
-    // Inclusive bounds: 0 matches `{ upTo: 0 }`. A cell renderer that greys
-    // out "no change" is free to special-case zero; the export does not.
+  test("a trend of exactly zero is neutral grey, whatever the thresholds say", () => {
+    // `neutralZero` on the type: 0 is "no change", so the `{ upTo: 0 }` red
+    // bucket must not paint it as a decline. Either side still follows the
+    // buckets.
     const ctx = withColours({
       pctDelta: { thresholds: TREND_THRESHOLDS },
     });
+    const colour = (pctDelta: number) =>
+      resolveExportCell({ ...emptyRow, pctDelta }, columns.pctDelta, ctx).color;
+    expect(colour(0)).toEqual({ hue: "gray", level: "dark" });
+    expect(colour(-0)).toEqual({ hue: "gray", level: "dark" });
+    expect(colour(-3)).toEqual({ hue: "red", level: "dark" });
+    expect(colour(0.01)).not.toEqual({ hue: "gray", level: "dark" });
+  });
+
+  test("without neutralZero, zero stays in its bucket", () => {
+    const plain = { ...columns.pctDelta, type: ColumnTypes.NUMBER };
+    const ctx = withColours({ pctDelta: { thresholds: TREND_THRESHOLDS } });
     expect(
-      resolveExportCell({ ...emptyRow, pctDelta: 0 }, columns.pctDelta, ctx)
-        .color,
-    ).toEqual({ hue: "red", level: "dark" });
-    expect(
-      resolveExportCell({ ...emptyRow, pctDelta: -3 }, columns.pctDelta, ctx)
-        .color,
+      resolveExportCell({ ...emptyRow, pctDelta: 0 }, plain, ctx).color,
     ).toEqual({ hue: "red", level: "dark" });
   });
 });

@@ -248,6 +248,18 @@ ships no UI kit.
 
 CSV and XLSX both resolve cells through the same `ExportCellContext`, so an export matches what the grid shows — including threshold colours.
 
+**Dates.** A date-only value (`2026-05-12`) exports as local midnight of that
+day. A datetime (`2026-05-12T08:30:00Z`) keeps its time in the workbook and
+gets an `hh:mm` format. The CSV writes only the day, the literal `YYYY-MM-DD`
+prefix that filtering and grouping use.
+
+**Zero on a trend.** A column type with `neutralZero: true` colours exactly 0
+neutral grey, whatever its thresholds say, so a `{ upTo: 0, red }` bucket does
+not show "no change" as a decline. Pass the column's type to
+`resolveThresholdColor(value, thresholds, column.type)` in your cell renderer
+so the grid agrees with the export. `TREND` in `examples/column-types.ts` sets
+it.
+
 ```ts
 import { buildCsvString, buildExportFilename, exportRowsToFile } from "firetable-grid";
 

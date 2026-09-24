@@ -59,6 +59,19 @@ export function normalizeThresholdColor(raw: unknown): unknown {
   return next;
 }
 
+/** The colour a `neutralZero` column's exact zero resolves to. */
+export const NEUTRAL_THRESHOLD_COLOR: ThresholdColor = {
+  hue: "gray",
+  level: "dark",
+};
+
+export interface ThresholdResolveOptions {
+  /** Exactly 0 is "no change", not a point on the scale: it resolves to
+   *  `NEUTRAL_THRESHOLD_COLOR` whatever the buckets say. Pass the column
+   *  type's `neutralZero`. */
+  readonly neutralZero?: boolean;
+}
+
 // Renderer-side resolver: pick the first bucket whose `upTo` is `>= value`;
 // fall through to the trailing catch-all when no bucket matches.
 //
@@ -67,7 +80,11 @@ export function normalizeThresholdColor(raw: unknown): unknown {
 export function resolveThresholdColor(
   value: number,
   thresholds: ThresholdList,
+  options?: ThresholdResolveOptions,
 ): ThresholdColor {
+  // A trend's `{ upTo: 0, red }` bucket would otherwise paint "unchanged" as
+  // a decline.
+  if (options?.neutralZero && value === 0) return NEUTRAL_THRESHOLD_COLOR;
   for (const t of thresholds) {
     if ("upTo" in t) {
       if (value <= t.upTo) return t.color;

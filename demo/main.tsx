@@ -71,7 +71,9 @@ const categoryOf: CategoryResolver = (id) => CATEGORY[id];
 
 function tone(column: SchemaColumn<Item>, value: number): string {
   if (!column.thresholds) return "";
-  return thresholdClasses(resolveThresholdColor(value, column.thresholds));
+  return thresholdClasses(
+    resolveThresholdColor(value, column.thresholds, column.type),
+  );
 }
 
 function Cell({ column, row }: { column: SchemaColumn<Item>; row: Item }) {

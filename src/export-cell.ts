@@ -132,21 +132,39 @@ function numericFormat<TData extends RowData>(
   return grouped;
 }
 
-// A date cell carries a calendar day, not an instant, so it resolves through
-// the same rule as filtering and grouping (see `./date-grouping`): a string
-// contributes its literal YYYY-MM-DD prefix, read as LOCAL midnight. Handing
-// the string to `new Date()` instead would parse it as UTC midnight, which
-// ExcelJS then writes at its local wall clock - the 19th, for a date-only
-// string, anywhere west of Greenwich.
+// A date-only value carries a calendar day, not an instant, so it resolves
+// through the same rule as filtering and grouping (see `./date-grouping`): a
+// string contributes its literal YYYY-MM-DD prefix, read as LOCAL midnight.
+// Handing a bare `YYYY-MM-DD` to `new Date()` instead would parse it as UTC
+// midnight, which ExcelJS then writes at its local wall clock - the 19th, for
+// the 20th, anywhere west of Greenwich.
+//
+// A datetime string is an instant and keeps its time. Day-level rounding is
+// the CSV's job alone: it gets the literal prefix through `text` (see
+// `resolveExportCell`), so the file still agrees with the filter paths.
 function toDate(raw: unknown): Date | null {
   if (raw instanceof Date) return Number.isNaN(raw.getTime()) ? null : raw;
   if (typeof raw !== "string") return null;
-  const local = ymdToLocalDate(toYmd(raw));
+  const ymd = toYmd(raw);
+  if (ymd !== "" && raw.trim().length > ymd.length) {
+    const instant = new Date(raw);
+    if (!Number.isNaN(instant.getTime())) return instant;
+  }
+  const local = ymdToLocalDate(ymd);
   if (local) return local;
   // No YYYY-MM-DD prefix: fall back to the platform parser so a locale format
   // ("Sep 20, 2026") still exports rather than dropping to blank.
   const parsed = new Date(raw);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function hasTimeOfDay(date: Date): boolean {
+  return (
+    date.getHours() !== 0 ||
+    date.getMinutes() !== 0 ||
+    date.getSeconds() !== 0 ||
+    date.getMilliseconds() !== 0
+  );
 }
 
 function colorFor<TData extends RowData>(
@@ -158,7 +176,7 @@ function colorFor<TData extends RowData>(
   if (!colors) return undefined;
   if (typeof value === "number") {
     return colors.thresholds
-      ? resolveThresholdColor(value, colors.thresholds)
+      ? resolveThresholdColor(value, colors.thresholds, col.type)
       : undefined;
   }
   return colors.enumColors
@@ -226,7 +244,16 @@ export function resolveExportCell<TData extends RowData>(
   }
 
   if (col.type.dataType === "date") {
-    return { value: toDate(raw), numFmt: "dd mmm yyyy" };
+    const date = toDate(raw);
+    if (!date) return { value: null };
+    const ymd = toYmd(raw);
+    return {
+      value: date,
+      numFmt: hasTimeOfDay(date) ? "dd mmm yyyy hh:mm" : "dd mmm yyyy",
+      // The CSV names the day the filter and grouping paths key off - the
+      // literal prefix, not the local day of the instant.
+      ...(ymd !== "" ? { text: ymd } : undefined),
+    };
   }
 
   // Enum first, and on the declared type rather than the runtime one: the row

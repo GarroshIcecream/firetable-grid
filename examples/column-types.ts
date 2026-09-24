@@ -129,6 +129,7 @@ export const ColumnTypes = {
     aggregatable: true,
     cellAlignment: "start",
     colorByThreshold: true,
+    neutralZero: true,
   },
   PROGRESS: {
     unit: "percentage_points",
