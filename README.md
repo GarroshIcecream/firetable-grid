@@ -26,6 +26,8 @@ The engine ships **no catalogue of its own**. `examples/column-types.ts` is a wo
 import { col, toColumnDefs, type ColumnType } from "firetable-grid";
 import { ColumnTypes } from "./column-types";
 
+// Fixed strings for brevity. In an app that switches locale, build these
+// inside a component from your translator; see "Translating columns (i18n)".
 const columns = [
   col<Row>({ id: "name",  label: "Name",  type: ColumnTypes.TEXT }),
   col<Row>({ id: "price", label: "Price", type: ColumnTypes.CURRENCY }),
@@ -370,6 +372,71 @@ State is touched once, on pointer-up. The handle is focusable: ←/→ resize by
 `styles/grid.css` carries only what the grid cannot work without — the handle's
 hit area, drag affordances, sticky stacking. Colour, borders and fonts are
 yours; the classes are all `.ftg-*`.
+
+## Translating columns (i18n)
+
+The engine holds no locale and no i18n library. A column's `label` and
+`description` are plain display strings, so translation happens where you build
+the columns. Build them inside a component from your translator, not at module
+level:
+
+```tsx
+function CarsGrid({ rows }) {
+  const t = useTranslations();            // next-intl; react-i18next's `t` works too
+
+  const columns = useMemo(() => [
+    col<Car>({
+      id: "price",
+      label: t("cars.price"),
+      description: t("cars.price.description"),   // header tooltip
+      type: ColumnTypes.CURRENCY,
+    }),
+    col<Car>({
+      id: "status",
+      label: t("cars.status"),
+      type: ColumnTypes.BADGE,
+      filterOptions: STATUSES.map((value) => ({ value, label: t(`cars.status.${value}`) })),
+    }),
+  ], [t]);                                // with react-i18next, depend on `i18n.language`
+
+  return <DataGrid rows={rows} columns={columns} renderCell={renderCell} />;
+}
+```
+
+**A locale switch shows up on the next render.** A new locale gives a new `t`,
+the memo rebuilds the columns, and `<DataGrid>` derives everything from the
+`columns` prop instead of copying it into state, so the new headers appear
+immediately. **Nothing in the view resets:** order, widths, visibility, pins,
+sort, filters, groups and selection are all keyed by column id and raw value,
+never by a display string. An enum filter stores `"sold"`, not `"Verkauft"`, so
+an active filter keeps matching, and a view saved in one locale opens in
+another. The CSV and XLSX headers read the same `label`, so exports follow the
+locale too.
+
+**`description`** is shown as the header label's native `title` tooltip. To use
+your own tooltip component, pass `renderHeader`, which replaces the label with
+whatever you render. The sort mark and resize handle stay the grid's:
+
+```tsx
+<DataGrid
+  columns={columns}
+  renderHeader={(column) => (
+    <Tooltip content={column.description}>{column.label}</Tooltip>
+  )}
+  …
+/>
+```
+
+The other locale-dependent inputs are passed in the same way:
+`numberFormatter` (next-intl's `useFormatter()` fits as-is), `emptyMessage`,
+`renderCheckbox`, and the relative labels in `date-grouping`.
+
+**Still English:** the grid's own accessibility labels ("Select all rows",
+"Resize …"), and the `FILTER_OP` values, which are both the stored operator and
+its default display text. If your filter UI shows operators, map them to
+translated labels there.
+
+`examples/i18n.tsx` is this pattern as compiling code.
 
 ## Layout (`firetable-grid/layout`)
 

@@ -24,6 +24,10 @@ export interface SchemaColumn<TData extends RowData> {
   accessorKey?: string;
   labelKey?: Extract<keyof TData, string>;
   label: string;
+  /** Longer explanation of what the column holds, shown as the header's
+   *  tooltip. Like `label`, a display string: translate it where you build
+   *  the columns. */
+  description?: string;
   type: ColumnType;
   width: number;
   minWidth: number;
@@ -60,6 +64,7 @@ interface ColDef<TData extends RowData> {
   accessorKey?: string;
   labelKey?: Extract<keyof TData, string>;
   label: string;
+  description?: string;
   type: ColumnType;
   width?: number;
   minWidth?: number;
@@ -110,6 +115,7 @@ export function col<TData extends RowData>(
     accessorKey: def.accessorKey ?? def.id,
     labelKey: def.labelKey,
     label: def.label,
+    description: def.description,
     type: def.type,
     width: def.width ?? COLUMN_DEFAULTS.width,
     minWidth: def.minWidth ?? COLUMN_DEFAULTS.minWidth,
@@ -205,6 +211,7 @@ export function toColumnDefs<TData extends RowData>(
       meta: {
         type: sc.type,
         labelKey: sc.labelKey,
+        description: sc.description,
         frozen: sc.frozen,
         manageable: sc.manageable,
         cellVariant: sc.cellVariant,

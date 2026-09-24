@@ -146,6 +146,13 @@ export interface DataGridProps<TData extends RowData> {
     label: string;
     onToggle: () => void;
   }) => ReactNode;
+  /**
+   * Replaces a header's label - e.g. to show `column.description` in your own
+   * tooltip component. The sort mark and resize handle stay the grid's. By
+   * default the label is `column.label`, with `column.description` as its
+   * native `title` tooltip.
+   */
+  renderHeader?: (column: SchemaColumn<TData>) => ReactNode;
   /** Replaces a footer cell's contents. Receives the resolved number, or null
    *  when there is nothing to show. */
   renderFooterCell?: (
@@ -272,6 +279,7 @@ export function DataGrid<TData extends RowData>({
   footerValues,
   numberFormatter,
   renderCheckbox = defaultCheckbox,
+  renderHeader,
   renderFooterCell,
   virtualize,
   virtualItems,
@@ -695,8 +703,12 @@ export function DataGrid<TData extends RowData>({
                         commitSelection(toggleIds(selected, visibleRowIds));
                       },
                     })
+                  ) : renderHeader ? (
+                    <span className="ftg-th-label">{renderHeader(column)}</span>
                   ) : (
-                    <span className="ftg-th-label">{column.label}</span>
+                    <span className="ftg-th-label" title={column.description}>
+                      {column.label}
+                    </span>
                   )}
                   {sort ? (
                     <span className="ftg-sort-mark" aria-hidden="true">
