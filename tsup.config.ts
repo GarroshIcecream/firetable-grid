@@ -18,6 +18,10 @@ export default defineConfig({
     index: "src/index.ts",
     schema: "src/schema.ts",
     server: "src/server.ts",
+    "sql/index": "src/sql/index.ts",
+    "drizzle/index": "src/drizzle.ts",
+    "pg/index": "src/pg.ts",
+    "snowflake/index": "src/snowflake.ts",
     "layout/index": "src/layout/index.ts",
     "react/index": "src/react/index.ts",
   },
@@ -43,6 +47,7 @@ export default defineConfig({
     "react-dom",
     "server-only",
     "zod",
+    "drizzle-orm",
   ],
   // `"use client"` on the React entry points and `"server-only"` on the server
   // one are load-bearing, not decoration: without them a Next.js App Router

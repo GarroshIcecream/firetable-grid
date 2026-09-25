@@ -30,13 +30,15 @@ import {
 import {
   buildCellSpecs,
   buildColumnLayout,
+  buildColumnWindow,
   buildFlatItems,
   buildRowPositionsByIndex,
   buildVirtualRenderPlan,
   CELL_ALIGNMENT_CLASS,
   type ColumnLayoutEntry,
+  type ColumnWindow,
   cellPaddingClass,
-  computeRowsAgg,
+  computeRowsAggregates,
   EMPTY_GROUP_KEY,
   type FlatItem,
   fixedRowWindow,
@@ -44,15 +46,15 @@ import {
   groupSortDirection,
   PINNED_EDGE_BORDER,
   PINNED_INNER_EDGE_SHADOW,
-  ROW_INDEX_TEXT_CLASS,
+  type RowsAggregation,
   reachedEndOfRows,
   SELECTION_COLUMN_ID,
   SELECTION_COLUMN_WIDTH,
   type SkeletonShape,
+  tableGeometry,
   type VirtualRangeItem,
 } from "../layout";
 import {
-  checkboxClick,
   resolveSelectionClick,
   type SelectionClick,
   type SelectionState,
@@ -63,13 +65,18 @@ import {
 import { sortRowsForExport } from "../sort-rows";
 import { getColumnSort, sortRulesEqual, toggleSort } from "../sorting-state";
 import { resolveColumnOrder, resolveColumnPins } from "../view-columns";
+import { ColumnSpacer } from "./ColumnSpacer";
+import { GridBodyRow } from "./GridBodyRow";
 import { useColumnReorder } from "./use-column-reorder";
 import { MAX_COLUMN_WIDTH, useColumnResize } from "./use-column-resize";
 
 export interface DataGridProps<TData extends RowData> {
+  /** Immutable rows: replace changed row objects so memoized cells update. */
   rows: readonly TData[];
+  /** Server mode preserves supplied rows/order and requires view + onViewChange. */
+  dataMode?: "client" | "server";
   columns: readonly SchemaColumn<TData>[];
-  /** Renders one cell. The grid owns layout and colour; the DOM is yours. */
+  /** Renders one cell. Keep stable with useCallback; include all render dependencies. */
   renderCell: (column: SchemaColumn<TData>, row: TData) => ReactNode;
 
   /**
@@ -178,6 +185,8 @@ export interface DataGridProps<TData extends RowData> {
    * heights, drive it from your own virtualizer through `virtualItems`.
    */
   virtualize?: { rowHeight: number; overscan?: number };
+  /** Window unpinned columns by their declared widths. Pinned and focused columns stay mounted. */
+  virtualizeColumns?: { overscan?: number };
   /**
    * Virtual items from your own virtualizer, for variable row heights.
    * `@tanstack/react-virtual`'s `getVirtualItems()` satisfies this shape, and
@@ -260,6 +269,7 @@ const EMPTY_IDS: readonly string[] = [];
 
 export function DataGrid<TData extends RowData>({
   rows,
+  dataMode = "client",
   columns,
   renderCell,
   view,
@@ -282,6 +292,7 @@ export function DataGrid<TData extends RowData>({
   renderHeader,
   renderFooterCell,
   virtualize,
+  virtualizeColumns,
   virtualItems,
   totalSize,
   onEndReached,
@@ -292,6 +303,12 @@ export function DataGrid<TData extends RowData>({
   className,
   emptyMessage = "No rows match the current filter.",
 }: DataGridProps<TData>) {
+  if (dataMode === "server") {
+    if (!view || !onViewChange)
+      throw new Error("DataGrid server mode requires view and onViewChange");
+    if (view.group !== null)
+      throw new Error("DataGrid server mode does not support grouping yet");
+  }
   const frameRef = useRef<HTMLDivElement | null>(null);
 
   // Every piece of state can be driven from outside or left to the grid, so the
@@ -399,17 +416,26 @@ export function DataGrid<TData extends RowData>({
   // allocates a fresh style object per cell. `buildCellSpecs` is the engine's
   // own hoist for exactly that; `metaOf` is the identity here because a
   // SchemaColumn already carries `type`, `breakdown` and `cellTint`.
-  const cellSpecs = useMemo(
-    () =>
-      buildCellSpecs<TData, SchemaColumn<TData>>(layout, {
-        wrapCells,
-        enableSelection: selectable,
-        denseCellRenderers,
-        skeletonShapes,
-        metaOf: (column) => column,
-      }),
-    [layout, wrapCells, selectable, denseCellRenderers, skeletonShapes],
-  );
+  const columnWindowing = virtualizeColumns !== undefined;
+  const cellSpecs = useMemo(() => {
+    const specs = buildCellSpecs<TData, SchemaColumn<TData>>(layout, {
+      wrapCells,
+      enableSelection: selectable,
+      denseCellRenderers,
+      skeletonShapes,
+      metaOf: (column) => column,
+    });
+    if (columnWindowing)
+      for (const spec of specs) spec.style.boxSizing = "border-box";
+    return specs;
+  }, [
+    layout,
+    wrapCells,
+    selectable,
+    denseCellRenderers,
+    skeletonShapes,
+    columnWindowing,
+  ]);
 
   // Depend on the two fields that narrow rows, not on the whole view: a header
   // click replaces the view object, and re-running the filter over every row
@@ -418,13 +444,19 @@ export function DataGrid<TData extends RowData>({
   // emptiness check to keep in sync here.
   const { search, filter, sort } = activeView;
   const visible = useMemo(
-    () => applyView(rows, { search, filter, sort: [], group: null }, columns),
-    [rows, search, filter, columns],
+    () =>
+      dataMode === "server"
+        ? rows
+        : applyView(rows, { search, filter, sort: [], group: null }, columns),
+    [rows, search, filter, columns, dataMode],
   );
 
   const sorted = useMemo(
-    () => sortRowsForExport(visible, sort, columns),
-    [visible, sort, columns],
+    () =>
+      dataMode === "server"
+        ? visible
+        : sortRowsForExport(visible, sort, columns),
+    [visible, sort, columns, dataMode],
   );
 
   const flatItems = useMemo(() => {
@@ -441,17 +473,33 @@ export function DataGrid<TData extends RowData>({
   // Only subscribed when the built-in windowing is on, so an unvirtualized
   // grid attaches no scroll listener at all.
   const windowing = virtualize !== undefined && virtualItems === undefined;
-  const [scroll, setScroll] = useState({ top: 0, height: 0 });
+  const [focusedColumn, setFocusedColumn] = useState<string | null>(null);
+  const [resizePreview, setResizePreview] = useState<
+    ReadonlyMap<string, number>
+  >(new Map());
+  const [scroll, setScroll] = useState({
+    top: 0,
+    height: 0,
+    left: 0,
+    width: 0,
+  });
   useEffect(() => {
     const frame = frameRef.current;
-    if (!windowing || !frame) return;
+    if ((!windowing && !columnWindowing) || !frame) return;
     const read = () => {
-      const top = frame.scrollTop;
-      const height = frame.clientHeight;
+      const top = windowing ? frame.scrollTop : 0;
+      const height = windowing ? frame.clientHeight : 0;
+      const left = columnWindowing ? frame.scrollLeft : 0;
+      const width = columnWindowing ? frame.clientWidth : 0;
       // Returning the previous object bails React out, so an identical scroll
       // event does not re-render the grid.
       setScroll((prev) =>
-        prev.top === top && prev.height === height ? prev : { top, height },
+        prev.top === top &&
+        prev.height === height &&
+        prev.left === left &&
+        prev.width === width
+          ? prev
+          : { top, height, left, width },
       );
     };
     read();
@@ -462,7 +510,7 @@ export function DataGrid<TData extends RowData>({
       frame.removeEventListener("scroll", read);
       observer.disconnect();
     };
-  }, [windowing]);
+  }, [windowing, columnWindowing]);
 
   /**
    * The rows to render, each with the spacer height that precedes it.
@@ -518,7 +566,14 @@ export function DataGrid<TData extends RowData>({
       spacerAfter: 0,
       lastRenderedIndex: flatItems.length - 1,
     };
-  }, [virtualItems, totalSize, virtualize, flatItems, scroll]);
+  }, [
+    virtualItems,
+    totalSize,
+    virtualize,
+    flatItems,
+    scroll.top,
+    scroll.height,
+  ]);
 
   // Re-armed by the loaded row count, not by a timer: the page that lands is
   // what changes it, so a threshold inside one page cannot fire twice for the
@@ -577,13 +632,6 @@ export function DataGrid<TData extends RowData>({
     [flatItems, sorted, getRowId],
   );
 
-  // Aggregates run over every row the view selected, not the rendered window:
-  // a footer that changed as you scrolled would be describing the viewport.
-  const footerRows = useMemo(
-    () => (footerAggregations ? sorted.map((original) => ({ original })) : []),
-    [footerAggregations, sorted],
-  );
-
   const headerSelection: SelectionState = useMemo(
     () => selectionStateOf(selected, visibleRowIds),
     [selected, visibleRowIds],
@@ -634,8 +682,94 @@ export function DataGrid<TData extends RowData>({
       [layout],
     ),
     onCommit: commitSizes,
+    onPreview: columnWindowing ? setResizePreview : undefined,
     enabled: resizable,
   });
+
+  const columnWindow = useMemo<ColumnWindow | undefined>(() => {
+    if (!columnWindowing) return undefined;
+    const keep = new Set<string>();
+    for (const id of [focusedColumn, resize.activeId, reorder.activeId])
+      if (id !== null) keep.add(id);
+    return buildColumnWindow(
+      layout.map((entry) => ({
+        ...entry,
+        size: resizePreview.get(entry.id) ?? entry.size,
+      })),
+      {
+        scrollLeft: scroll.left,
+        viewportWidth: scroll.width,
+        overscan: virtualizeColumns?.overscan,
+        keep,
+      },
+    );
+  }, [
+    columnWindowing,
+    layout,
+    resizePreview,
+    scroll.left,
+    scroll.width,
+    virtualizeColumns?.overscan,
+    focusedColumn,
+    resize.activeId,
+    reorder.activeId,
+  ]);
+  const columnSlots = useMemo(
+    () =>
+      columnWindow?.slots ??
+      layout.map((_, index) => ({
+        index,
+        before: { start: index, count: 0, width: 0 },
+      })),
+    [columnWindow, layout],
+  );
+
+  const hasFooter = Boolean(footerAggregations && numberFormatter);
+  const computeFooterResults = useMemo(() => {
+    const byId = new Map(columns.map((column) => [column.id, column]));
+    // Retain completed results when columns scroll out and back in. The cache
+    // belongs to this immutable data/configuration snapshot, not its geometry.
+    const cache = new Map<string, number | null>();
+    return (mountedIds: readonly string[]) => {
+      const results = new Map(cache);
+      if (!hasFooter) return results;
+      const requests: RowsAggregation<TData>[] = [];
+      const ids: string[] = [];
+      for (const id of mountedIds) {
+        const column = byId.get(id);
+        const aggregation = footerAggregations?.[id];
+        if (!column?.type.aggregatable || !aggregation || results.has(id))
+          continue;
+        results.set(
+          id,
+          resolveFooterValue(id, aggregation, footerValues, () => {
+            if (dataMode === "client") {
+              ids.push(id);
+              requests.push({
+                key: column.accessorKey ?? id,
+                aggregation,
+                read: column.getFilterValue
+                  ? (row: TData) => column.getFilterValue?.(row)
+                  : undefined,
+              });
+            }
+            return null;
+          }),
+        );
+      }
+      // Aggregate all filtered rows; server answers and unmounted columns skip
+      // the local batch. Publish only after every accessor succeeds.
+      const values = computeRowsAggregates(sorted, requests);
+      for (let i = 0; i < ids.length; i++) results.set(ids[i], values[i]);
+      for (const [id, value] of results) cache.set(id, value);
+      return results;
+    };
+  }, [columns, sorted, footerAggregations, footerValues, dataMode, hasFooter]);
+  const footerResults = useMemo(
+    () =>
+      computeFooterResults(columnSlots.map(({ index }) => layout[index].id)),
+    [computeFooterResults, columnSlots, layout],
+  );
 
   const sortableFields = useMemo(
     () => new Set(columns.filter((c) => c.sortable).map((c) => c.id)),
@@ -659,86 +793,136 @@ export function DataGrid<TData extends RowData>({
   };
 
   return (
-    <div ref={frameRef} className={cx("ftg-frame", className)}>
-      <table className="ftg-grid">
+    <div
+      ref={frameRef}
+      className={cx("ftg-frame", className)}
+      onFocusCapture={
+        columnWindowing
+          ? (e) =>
+              setFocusedColumn(
+                (e.target as HTMLElement).closest<HTMLElement>(
+                  "[data-column-id]",
+                )?.dataset.columnId ?? null,
+              )
+          : undefined
+      }
+      onBlurCapture={
+        columnWindowing
+          ? (e) =>
+              setFocusedColumn(
+                e.relatedTarget instanceof HTMLElement &&
+                  e.currentTarget.contains(e.relatedTarget)
+                  ? (e.relatedTarget.closest<HTMLElement>("[data-column-id]")
+                      ?.dataset.columnId ?? null)
+                  : null,
+              )
+          : undefined
+      }
+    >
+      <table
+        className="ftg-grid"
+        aria-colcount={columnWindowing ? layout.length : undefined}
+        style={
+          columnWindow
+            ? {
+                tableLayout: "fixed",
+                width: tableGeometry("total", columnWindow.totalWidth),
+                minWidth: tableGeometry("total", columnWindow.totalWidth),
+              }
+            : undefined
+        }
+      >
         <thead>
           <tr>
-            {layout.map((entry, columnIndex) => {
+            {columnSlots.map(({ index: columnIndex, before }) => {
+              const entry = layout[columnIndex];
               const column = entry.item;
               const sort = getColumnSort(activeView.sort, column.id);
               return (
-                <th
-                  key={entry.id}
-                  data-column-id={entry.id}
-                  aria-sort={
-                    sort
-                      ? sort.dir === "desc"
-                        ? "descending"
-                        : "ascending"
-                      : undefined
-                  }
-                  className={cx(
-                    "ftg-th",
-                    cellPaddingClass(column.type, denseCellRenderers),
-                    edgeClass(entry),
-                    entry.isPinned && "sticky z-10",
-                    column.type.cellAlignment &&
-                      CELL_ALIGNMENT_CLASS[column.type.cellAlignment],
-                    column.sortable && "ftg-sortable",
-                    reorder.activeId === entry.id && "ftg-dragging",
-                    reorder.overId === entry.id && "ftg-drop-target",
-                    resize.activeId === entry.id && "ftg-resizing",
-                  )}
-                  style={cellSpecs[columnIndex].style}
-                  {...reorder.dragProps(entry.id)}
-                  onClick={(e) => onHeaderClick(column, e.shiftKey)}
-                >
-                  {entry.id === SELECTION_COLUMN_ID ? (
-                    renderCheckbox({
-                      checked: headerSelection === "all",
-                      indeterminate: headerSelection === "some",
-                      label: "Select all rows",
-                      onToggle: () => {
-                        anchorRef.current = null;
-                        commitSelection(toggleIds(selected, visibleRowIds));
-                      },
-                    })
-                  ) : renderHeader ? (
-                    <span className="ftg-th-label">{renderHeader(column)}</span>
-                  ) : (
-                    <span className="ftg-th-label" title={column.description}>
-                      {column.label}
-                    </span>
-                  )}
-                  {sort ? (
-                    <span className="ftg-sort-mark" aria-hidden="true">
-                      {sort.dir === "desc" ? " ↓" : " ↑"}
-                      {/* Which column sorts first. Without it a multi-column
+                <Fragment key={entry.id}>
+                  <ColumnSpacer gap={before} header />
+                  <th
+                    aria-colindex={
+                      columnWindowing ? columnIndex + 1 : undefined
+                    }
+                    data-column-id={entry.id}
+                    aria-sort={
+                      sort
+                        ? sort.dir === "desc"
+                          ? "descending"
+                          : "ascending"
+                        : undefined
+                    }
+                    className={cx(
+                      "ftg-th",
+                      cellPaddingClass(column.type, denseCellRenderers),
+                      edgeClass(entry),
+                      entry.isPinned && "sticky z-10",
+                      column.type.cellAlignment &&
+                        CELL_ALIGNMENT_CLASS[column.type.cellAlignment],
+                      column.sortable && "ftg-sortable",
+                      reorder.activeId === entry.id && "ftg-dragging",
+                      reorder.overId === entry.id && "ftg-drop-target",
+                      resize.activeId === entry.id && "ftg-resizing",
+                    )}
+                    style={cellSpecs[columnIndex].style}
+                    {...reorder.dragProps(entry.id)}
+                    onClick={(e) => onHeaderClick(column, e.shiftKey)}
+                  >
+                    {entry.id === SELECTION_COLUMN_ID ? (
+                      renderCheckbox({
+                        checked: headerSelection === "all",
+                        indeterminate: headerSelection === "some",
+                        label: "Select all rows",
+                        onToggle: () => {
+                          anchorRef.current = null;
+                          commitSelection(toggleIds(selected, visibleRowIds));
+                        },
+                      })
+                    ) : renderHeader ? (
+                      <span className="ftg-th-label">
+                        {renderHeader(column)}
+                      </span>
+                    ) : (
+                      <span className="ftg-th-label" title={column.description}>
+                        {column.label}
+                      </span>
+                    )}
+                    {sort ? (
+                      <span className="ftg-sort-mark" aria-hidden="true">
+                        {sort.dir === "desc" ? " ↓" : " ↑"}
+                        {/* Which column sorts first. Without it a multi-column
                           sort is two identical arrows and no way to tell. */}
-                      {activeView.sort.length > 1 ? (
-                        <span className="ftg-sort-index">{sort.index + 1}</span>
-                      ) : null}
-                    </span>
-                  ) : null}
-                  {resizable ? (
-                    // biome-ignore lint/a11y/useSemanticElements: an <hr> cannot live inside a <th> as an overlaid drag target.
-                    <span
-                      role="separator"
-                      aria-orientation="vertical"
-                      aria-label={`Resize ${column.label}`}
-                      aria-valuenow={entry.size}
-                      aria-valuemin={entry.minWidth ?? 40}
-                      aria-valuemax={MAX_COLUMN_WIDTH}
-                      tabIndex={0}
-                      className="ftg-resize-handle"
-                      onPointerDown={(e) => resize.onResizeStart(entry.id, e)}
-                      onKeyDown={(e) => resize.onResizeKeyDown(entry.id, e)}
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                  ) : null}
-                </th>
+                        {activeView.sort.length > 1 ? (
+                          <span className="ftg-sort-index">
+                            {sort.index + 1}
+                          </span>
+                        ) : null}
+                      </span>
+                    ) : null}
+                    {resizable ? (
+                      // biome-ignore lint/a11y/useSemanticElements: an <hr> cannot live inside a <th> as an overlaid drag target.
+                      <span
+                        role="separator"
+                        aria-orientation="vertical"
+                        aria-label={`Resize ${column.label}`}
+                        aria-valuenow={entry.size}
+                        aria-valuemin={entry.minWidth ?? 40}
+                        aria-valuemax={MAX_COLUMN_WIDTH}
+                        tabIndex={0}
+                        className="ftg-resize-handle"
+                        onPointerDown={(e) => resize.onResizeStart(entry.id, e)}
+                        onKeyDown={(e) => resize.onResizeKeyDown(entry.id, e)}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    ) : null}
+                  </th>
+                </Fragment>
               );
             })}
+            {columnWindow ? (
+              <ColumnSpacer gap={columnWindow.after} header />
+            ) : null}
           </tr>
         </thead>
         <tbody>
@@ -762,7 +946,9 @@ export function DataGrid<TData extends RowData>({
                 </tr>
               ) : null;
             const key =
-              item.type === "group-header" ? `h:${item.key}` : `i:${index}`;
+              item.type === "group-header"
+                ? `h:${item.key}`
+                : `r:${getRowId ? getRowId(sorted[item.rowIndex]) : item.rowIndex}`;
             const body = (() => {
               if (item.type === "group-header") {
                 return (
@@ -824,63 +1010,26 @@ export function DataGrid<TData extends RowData>({
               const rowId = getRowId ? getRowId(row) : undefined;
               const isSelected = rowId !== undefined && selected.has(rowId);
               return (
-                <tr
-                  key={rowId ?? `r:${item.rowIndex}`}
-                  className={cx("ftg-row", isSelected && "ftg-row-selected")}
-                  aria-selected={selectable ? isSelected : undefined}
-                >
-                  {layout.map((entry, columnIndex) => {
-                    const column = entry.item;
-                    const spec = cellSpecs[columnIndex];
-                    return (
-                      <td
-                        key={entry.id}
-                        data-column-id={entry.id}
-                        className={spec.staticClass}
-                        style={spec.style}
-                      >
-                        {entry.id === SELECTION_COLUMN_ID &&
-                        rowId !== undefined ? (
-                          // Modifiers are read here rather than on the row, so a
-                          // range drag cannot collide with whatever the host puts
-                          // inside a cell.
-                          <span
-                            onClickCapture={(e) =>
-                              onRowToggle(
-                                rowId,
-                                checkboxClick({ shiftKey: e.shiftKey }),
-                              )
-                            }
-                          >
-                            {renderCheckbox({
-                              checked: isSelected,
-                              indeterminate: false,
-                              label: `Select row ${positions.get(item.rowIndex) ?? ""}`,
-                              onToggle: () => {
-                                /* handled by onClickCapture above */
-                              },
-                            })}
-                          </span>
-                        ) : column.type.dataType === "index" ? (
-                          <span className={ROW_INDEX_TEXT_CLASS}>
-                            {positions.get(item.rowIndex) ?? ""}
-                          </span>
-                        ) : (
-                          renderCell(column, row)
-                        )}
-                      </td>
-                    );
-                  })}
-                </tr>
+                <GridBodyRow
+                  row={row}
+                  rowId={rowId}
+                  selected={isSelected}
+                  selectable={selectable}
+                  position={positions.get(item.rowIndex)}
+                  layout={layout}
+                  cellSpecs={cellSpecs}
+                  columnWindow={columnWindow}
+                  renderCell={renderCell}
+                  renderCheckbox={renderCheckbox}
+                  onRowToggle={onRowToggle}
+                />
               );
             })();
-            return spacer ? (
+            return (
               <Fragment key={key}>
                 {spacer}
                 {body}
               </Fragment>
-            ) : (
-              body
             );
           })}
           {spacerAfter > 0 ? (
@@ -892,7 +1041,8 @@ export function DataGrid<TData extends RowData>({
         {footerAggregations && numberFormatter ? (
           <tfoot>
             <tr className="ftg-foot-row">
-              {layout.map((entry, columnIndex) => {
+              {columnSlots.map(({ index: columnIndex, before }) => {
+                const entry = layout[columnIndex];
                 const column = entry.item;
                 const aggregation = footerAggregations[entry.id];
                 const spec = cellSpecs[columnIndex];
@@ -900,45 +1050,44 @@ export function DataGrid<TData extends RowData>({
                 // not support, renders an empty cell rather than a zero.
                 if (!aggregation || !column.type.aggregatable) {
                   return (
-                    <td
-                      key={entry.id}
-                      className={spec.staticClass}
-                      style={spec.style}
-                    />
+                    <Fragment key={entry.id}>
+                      <ColumnSpacer gap={before} />
+                      <td
+                        data-column-id={entry.id}
+                        aria-colindex={
+                          columnWindowing ? columnIndex + 1 : undefined
+                        }
+                        className={spec.staticClass}
+                        style={spec.style}
+                      />
+                    </Fragment>
                   );
                 }
-                const read = column.getFilterValue
-                  ? (r: TData) => column.getFilterValue?.(r)
-                  : undefined;
-                const value = resolveFooterValue(
-                  entry.id,
-                  aggregation,
-                  footerValues,
-                  () =>
-                    computeRowsAgg(
-                      footerRows,
-                      column.accessorKey ?? entry.id,
-                      aggregation,
-                      read,
-                    ),
-                );
+                const value = footerResults.get(entry.id) ?? null;
                 return (
-                  <td
-                    key={entry.id}
-                    className={spec.staticClass}
-                    style={spec.style}
-                  >
-                    {renderFooterCell
-                      ? renderFooterCell(column, value, aggregation)
-                      : formatFooterAggregate(
-                          value,
-                          aggregation,
-                          column,
-                          numberFormatter,
-                        )}
-                  </td>
+                  <Fragment key={entry.id}>
+                    <ColumnSpacer gap={before} />
+                    <td
+                      data-column-id={entry.id}
+                      aria-colindex={
+                        columnWindowing ? columnIndex + 1 : undefined
+                      }
+                      className={spec.staticClass}
+                      style={spec.style}
+                    >
+                      {renderFooterCell
+                        ? renderFooterCell(column, value, aggregation)
+                        : formatFooterAggregate(
+                            value,
+                            aggregation,
+                            column,
+                            numberFormatter,
+                          )}
+                    </td>
+                  </Fragment>
                 );
               })}
+              {columnWindow ? <ColumnSpacer gap={columnWindow.after} /> : null}
             </tr>
           </tfoot>
         ) : null}

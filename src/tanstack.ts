@@ -33,7 +33,7 @@ import {
   sortFn_datetime,
   sortFn_text,
   tableFeatures,
-} from "@tanstack/react-table";
+} from "@tanstack/table-core";
 
 export const appTableFeatures = tableFeatures({
   columnOrderingFeature,

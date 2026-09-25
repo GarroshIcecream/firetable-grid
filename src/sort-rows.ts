@@ -1,4 +1,5 @@
-import { constructTable, type RowData } from "@tanstack/react-table";
+import type { RowData } from "@tanstack/react-table";
+import { constructTable } from "@tanstack/table-core";
 import { storeReactivityBindings } from "@tanstack/table-core/store-reactivity-bindings";
 
 import { type SchemaColumn, toColumnDefs } from "./column-schema";

@@ -1,6 +1,6 @@
 {
   "name": "firetable-grid",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Schema-driven filter, sort, group and export engine for TanStack Table — generic over your row type.",
   "license": "MIT",
   "type": "module",
@@ -42,7 +42,23 @@
       "import": "./dist/react/index.js"
     },
     "./styles/palette.css": "./styles/palette.css",
-    "./styles/grid.css": "./styles/grid.css"
+    "./styles/grid.css": "./styles/grid.css",
+    "./sql": {
+      "types": "./dist/sql/index.d.ts",
+      "import": "./dist/sql/index.js"
+    },
+    "./pg": {
+      "types": "./dist/pg/index.d.ts",
+      "import": "./dist/pg/index.js"
+    },
+    "./snowflake": {
+      "types": "./dist/snowflake/index.d.ts",
+      "import": "./dist/snowflake/index.js"
+    },
+    "./drizzle": {
+      "types": "./dist/drizzle/index.d.ts",
+      "import": "./dist/drizzle/index.js"
+    }
   },
   "scripts": {
     "build": "tsup",
@@ -52,7 +68,11 @@
     "format": "biome format --write",
     "demo": "bun demo/build.ts",
     "bench": "bun bench/index.ts",
-    "prepare": "bun run build"
+    "prepare": "bun run build",
+    "test:snowflake": "SNOWFLAKE_TEST=1 bun test tests/sql-snowflake-live.test.ts",
+    "test:browser": "bun bench/browser/run.ts",
+    "bench:core": "bun bench/core/run.ts",
+    "bench:frames": "bun bench/browser/run.ts --frames"
   },
   "dependencies": {
     "dequal": "^2.0.3"
@@ -65,7 +85,8 @@
     "react": ">=18",
     "react-dom": ">=18",
     "server-only": "^0.0.1",
-    "zod": "^4"
+    "zod": "^4",
+    "drizzle-orm": "^0.45.2"
   },
   "peerDependenciesMeta": {
     "exceljs": {
@@ -85,20 +106,29 @@
     },
     "zod": {
       "optional": true
+    },
+    "drizzle-orm": {
+      "optional": true
     }
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.11",
+    "@electric-sql/pglite": "^0.5.8",
+    "@playwright/test": "^1.63.0",
     "@tanstack/react-table": "9.2.4",
     "@tanstack/react-virtual": "^3.14.13",
     "@types/bun": "latest",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "drizzle-orm": "0.45.2",
     "exceljs": "^4.4.0",
     "mitata": "^1.0.34",
+    "pg": "^8.23.0",
     "react": "^19",
     "react-dom": "^19",
     "server-only": "^0.0.1",
+    "snowflake-sdk": "^3.3.0",
     "tsup": "^8.5.1",
     "typescript": "^6.0.3",
     "zod": "^4.6.2"

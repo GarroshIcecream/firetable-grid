@@ -2,3 +2,6 @@ node_modules
 *.tsbuildinfo
 .DS_Store
 dist
+
+# Regenerable CPU profiles; summaries and timing baselines stay versioned.
+bench/results/*.profiles/

@@ -25,6 +25,8 @@ export interface UseColumnResizeOptions {
   /** Committed on pointer-up, not per frame. */
   onCommit?: (sizes: Record<string, number>) => void;
   enabled?: boolean;
+  /** Keeps a column virtualizer in sync during pointer previews. */
+  onPreview?: (sizes: ReadonlyMap<string, number>) => void;
 }
 
 /** Upper bound for a dragged column. A column past this is a layout accident. */
@@ -43,18 +45,15 @@ export function clampColumnSize(
 /**
  * Pointer-driven column resizing.
  *
- * The drag writes straight to CSS custom properties on the frame, so a resize
- * never re-renders a cell — at 150 columns × 35 visible rows, committing to
- * React state per pointer frame would re-render thousands of memoized cells
- * per second. State is touched once, on pointer-up.
- *
- * Deliberately free of any virtualizer: the sizes are plain CSS, so a
- * virtualized and a non-virtualized grid resize identically.
+ * The drag writes widths straight to CSS custom properties on the frame.
+ * An optional preview callback lets column virtualization update its window
+ * while memoized cell content stays intact. Sizes commit on pointer-up.
  */
 export function useColumnResize({
   frameRef,
   columns,
   onCommit,
+  onPreview,
   enabled = true,
 }: UseColumnResizeOptions) {
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -64,15 +63,19 @@ export function useColumnResize({
   columnsRef.current = columns;
   const commitRef = useRef(onCommit);
   commitRef.current = onCommit;
+  const previewRef = useRef(onPreview);
+  previewRef.current = onPreview;
 
   /** Re-derive every pinned column's sticky offset from the live sizes. */
   const writeOffsets = useCallback(
-    (sizes: Map<string, number>) => {
+    (sizes: Map<string, number>, currentColumns = columnsRef.current) => {
       const frame = frameRef.current;
       if (!frame) return;
       let left = 0;
-      for (const column of columnsRef.current) {
+      let total = 0;
+      for (const column of currentColumns) {
         const size = sizes.get(column.id) ?? column.size;
+        total += size;
         frame.style.setProperty(columnSizeProperty(column.id), `${size}px`);
         if (column.isPinned) {
           frame.style.setProperty(columnLeftProperty(column.id), `${left}px`);
@@ -80,6 +83,7 @@ export function useColumnResize({
         }
       }
       frame.style.setProperty("--ftg-pinned", `${left}px`);
+      frame.style.setProperty("--ftg-total", `${total}px`);
     },
     [frameRef],
   );
@@ -87,8 +91,8 @@ export function useColumnResize({
   // Keep the properties in step when columns are reordered, hidden or resized
   // from outside a drag.
   useEffect(() => {
-    writeOffsets(new Map());
-  }, [writeOffsets]);
+    writeOffsets(new Map(), columns);
+  }, [writeOffsets, columns]);
 
   const onResizeStart = useCallback(
     (id: string, event: ReactPointerEvent<HTMLElement>) => {
@@ -110,12 +114,14 @@ export function useColumnResize({
         );
         sizes.set(id, next);
         writeOffsets(sizes);
+        previewRef.current?.(new Map(sizes));
       };
       const up = () => {
         window.removeEventListener("pointermove", move);
         window.removeEventListener("pointerup", up);
         window.removeEventListener("pointercancel", up);
         setActiveId(null);
+        previewRef.current?.(new Map());
         const size = sizes.get(id);
         if (size !== undefined && size !== startSize) {
           commitRef.current?.({ [id]: size });

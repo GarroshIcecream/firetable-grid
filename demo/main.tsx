@@ -488,6 +488,7 @@ function App() {
           view={view}
           onViewChange={setView}
           virtualize={{ rowHeight: ROW_HEIGHT }}
+          virtualizeColumns={{ overscan: 2 }}
           enableSelection
           selectedRowIds={selectedRows}
           onSelectionChange={setSelectedRows}

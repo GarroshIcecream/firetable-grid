@@ -9,9 +9,11 @@
 // Tailwind class names are returned as strings, so you keep full control of the
 // markup. `use-column-resize-preview` is the only module that needs
 // `@tanstack/react-virtual`; everything else is dependency-free.
+export * from "./aggregates";
 export * from "./cell-padding";
 export * from "./cell-spec";
 export * from "./cell-vertical-align";
+export * from "./column-window";
 export * from "./geometry";
 export * from "./model";
 export * from "./row-position";

@@ -18,7 +18,14 @@ import * as schema from "../src/schema";
 // heavy optional peer.
 
 const SRC = resolve(import.meta.dir, "../src");
-const HEAVY_OPTIONAL_PEERS = ["zod", "exceljs", "server-only"];
+const HEAVY_OPTIONAL_PEERS = [
+  "zod",
+  "exceljs",
+  "server-only",
+  "pg",
+  "snowflake-sdk",
+  "drizzle-orm",
+];
 
 // `import type` / `export type` are erased before anything reaches a bundle,
 // so they must not count — `xlsx-sheet.ts` names exceljs only for its types.
@@ -104,6 +111,24 @@ describe("the package root stays free of heavy optional peers", () => {
   test("the root does not reach node: builtins either", () => {
     const builtins = [...fromRoot.keys()].filter((s) => s.startsWith("node:"));
     expect(builtins).toEqual([]);
+  });
+
+  test("the headless root loads under React server conditions for ORM consumers", async () => {
+    const child = Bun.spawn(
+      [
+        process.execPath,
+        "--conditions",
+        "react-server",
+        "-e",
+        'import { col, emptyGridView } from "./src/index.ts"; if (typeof col !== "function" || emptyGridView().filter !== null) process.exit(1);',
+      ],
+      { cwd: resolve(SRC, ".."), stdout: "pipe", stderr: "pipe" },
+    );
+    const stderr = await new Response(child.stderr).text();
+    expect({ exitCode: await child.exited, stderr }).toEqual({
+      exitCode: 0,
+      stderr: "",
+    });
   });
 });
 
@@ -227,6 +252,10 @@ describe("every package a source file imports is declared", () => {
       "server.ts",
       "layout/index.ts",
       "react/index.ts",
+      "sql/index.ts",
+      "pg.ts",
+      "snowflake.ts",
+      "drizzle.ts",
     ];
 
     const undeclared = new Set<string>();
@@ -243,5 +272,38 @@ describe("every package a source file imports is declared", () => {
       }
     }
     expect([...undeclared]).toEqual([]);
+  });
+});
+
+test("Drizzle is isolated from React and driver runtime dependencies", () => {
+  expect([...reachableBarePackages(join(SRC, "drizzle.ts")).keys()]).toEqual([
+    "drizzle-orm",
+  ]);
+  const browserDependencies = [
+    ...reachableBarePackages(join(SRC, "react/index.ts")).keys(),
+  ];
+  expect(
+    browserDependencies.some((name) =>
+      ["drizzle-orm", "pg", "snowflake-sdk"].includes(name),
+    ),
+  ).toBe(false);
+});
+
+describe("SQL entry points stay dependency-free", () => {
+  for (const entry of ["sql/index.ts", "pg.ts", "snowflake.ts"]) {
+    test(`${entry} has no runtime package dependencies`, () => {
+      expect([...reachableBarePackages(join(SRC, entry)).keys()]).toEqual([]);
+    });
+  }
+  test("SQL sources are published as separate entry points", () => {
+    const pkg = JSON.parse(
+      readFileSync(resolve(import.meta.dir, "../package.json"), "utf8"),
+    );
+    for (const name of ["sql", "pg", "snowflake"]) {
+      expect(pkg.exports[`./${name}`]).toEqual({
+        types: `./dist/${name}/index.d.ts`,
+        import: `./dist/${name}/index.js`,
+      });
+    }
   });
 });

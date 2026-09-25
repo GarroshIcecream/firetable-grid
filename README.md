@@ -184,10 +184,11 @@ from a link three weeks later.
 
 ### Virtualization and paging
 
-Both **opt-in**:
+All **opt-in**:
 
 ```tsx
-virtualize={{ rowHeight: 36, overscan: 8 }}   // built-in, no extra dependency
+virtualize={{ rowHeight: 36, overscan: 8 }}   // vertical row window
+virtualizeColumns={{ overscan: 2 }}         // horizontal column window
 onEndReached={fetchNextPage} endReachedThreshold={8}
 ```
 
@@ -198,6 +199,21 @@ a test asserting "all 40 rows render" starts failing. A fifty-row grid should
 pay none of that. It is also not auto-enabled above some row count: behaviour
 that changes discontinuously with data size gives you "works at 50 rows, breaks
 at 500", which is the worst kind of bug report.
+
+`virtualizeColumns` mounts columns intersecting the scroll frame, plus the
+requested number of neighboring columns on each side (default: 2). It uses
+schema widths and `view.columns.sizes`; headers, body, and footer share one
+window. Pinned columns always remain mounted, as does the column containing
+focus or an active resize/reorder. Full table width and original column indices
+are preserved; the table exposes `aria-colcount` and cells expose `aria-colindex`.
+Column virtualization works with either row virtualization path or without one.
+It currently assumes left-to-right layout and declared pixel widths.
+
+Unfocused offscreen cells unmount. Store committed edits outside the cell; local
+component state resets after unmounting. Retaining a focused column does not
+retain its row when that row leaves the vertical window. Find-in-page and print
+only include mounted content. All pinned columns render even when they exceed
+the viewport width.
 
 `virtualize` needs **every row and every group header to be `rowHeight` tall**.
 For variable heights, drive it from your own virtualizer instead — anything
@@ -221,6 +237,19 @@ on the `layout` subpath; `buildVirtualRenderPlan` handles the bring-your-own
 case. All three are usable without the component.
 
 ### Footer aggregates
+
+Client footer totals are batched in one row traversal for the mounted columns
+that need local values, then cached across scrolling and selection. Columns
+that scroll out and back in reuse their totals. Replacing rows, columns, or
+`footerAggregations` / `footerValues` maps invalidates that cache; keep these
+inputs immutable and accessors pure. Server-provided totals (including explicit
+`null`) skip local computation, and server mode never derives a total from a
+loaded page.
+
+For custom renderers, `computeRowsAggregates` from `firetable-grid/layout` accepts
+raw rows and an array of `{ key, aggregation, read? }` requests, returning nullable
+numbers in request order. `read` overrides the data key. The existing
+`computeRowsAgg` single-column API remains available unchanged.
 
 `footerAggregations` maps a column id to one of `avg`, `sum`, `min`, `max` or
 `count`, and the grid renders a sticky `<tfoot>`. A column with no entry, or
@@ -538,6 +567,41 @@ Both snippets above live in `examples/` as compiling code — `bun run typecheck
 
 ## Benchmarks
 
+For reproducible Chromium core and native-scroll baselines, run `bun run bench:core`
+and `bun run bench:frames`. See [the benchmark guide](bench/README.md) for saved
+results, profiling, before/after comparisons and measurement limits.
+
+The browser suite mounts the real production React grid in Chromium with 10k
+and 100k rows and 50 data columns. It measures mount and scroll work, and checks
+that virtualization bounds the DOM, unchanged cells do not render on scroll,
+row edits and new render callbacks update cells, selection works, and stable row
+IDs preserve input state when rows reorder.
+
+```bash
+bunx playwright install chromium  # once, if Chromium is not installed
+bun run test:browser
+```
+
+For a before/after comparison, capture the bundle before editing with
+`bun bench/browser/run.ts --capture=/tmp/grid-before.js`. Run the updated code
+with `--baseline=/tmp/grid-before.js --output=/tmp/grid-browser-results.json`.
+The scroll timing includes React work and a synchronous layout flush; it excludes
+paint. Mount timing includes two animation frames and is not a pure CPU measure.
+These are browser measurements, separate from database and filter-engine tests.
+
+For a matched column-window comparison on 10k rows × 100 data columns, run
+`bun bench/browser/run.ts --columns --output=/tmp/grid-columns.json`. It alternates
+column virtualization off/on/on/off, measures both scroll directions, and records
+mounted cells. `--check-only` runs the behavior checks without timing samples;
+these cover pinned columns, focus retention, resizing, hide/reorder, grouping,
+variable widths without an app CSS reset, and header/body/footer alignment.
+
+`DataGrid` memoizes rows and rendered cell contents. Keep `columns`, `getRowId`,
+and `renderCell` stable between unrelated renders. Replace changed row objects
+instead of mutating them; include locale, formatter, and other presentation
+dependencies in `renderCell`'s `useCallback` dependency list. Virtualization remains
+opt-in for both rows and columns.
+
 ```bash
 bun run bench                 # the default ladder
 bun run bench -- --full       # adds the 300,000 × 200 rung (~2.2 GB, slow)
@@ -611,3 +675,250 @@ bun run bench     # performance suite (see Benchmarks above)
 ## License
 
 MIT
+
+## ORM integration
+
+The browser grid consumes rows and `GridView`; it does not import an ORM or own
+your network transport. Server integrations translate that same view into query
+expressions while your application retains its joins, tenant scope, transaction,
+and response shape.
+
+### Drizzle with PostgreSQL
+
+Install `drizzle-orm` in the server application and import the optional
+`firetable-grid/drizzle` entry point. It returns native Drizzle expressions and
+validated paging values; it does not execute or replace your query builder.
+
+```ts
+import { and, eq } from "drizzle-orm";
+import { compileDrizzleQuery } from "firetable-grid/drizzle";
+
+const grid = compileDrizzleQuery(requestBody, columns, {
+  fields: { make: listings.make, price: listings.price },
+  rowKey: listings.id,
+});
+
+const rows = await db
+  .select({ id: listings.id, make: listings.make, price: listings.price })
+  .from(listings)
+  .where(and(eq(listings.tenantId, authenticatedTenantId), grid.where))
+  .orderBy(...grid.orderBy)
+  .limit(grid.limit)
+  .offset(grid.offset);
+```
+
+`fields` maps grid column IDs to trusted PostgreSQL columns or native Drizzle
+`SQL` expressions. Aliased tables and parameterized computed expressions work;
+pass computed expressions before `.as(...)`, since a SELECT alias cannot be used
+in the same query's WHERE clause. Only referenced fields require mappings.
+Request values remain bound parameters, including expressions' own parameters.
+
+The application supplies a unique non-null row key, joins and tenant conditions.
+Use the same predicate for an optional count; use a transaction if the count and
+page must share a snapshot. The adapter never overwrites an existing builder's
+WHERE clause. Grouping is not supported in this initial adapter, and its paging
+values describe offset pagination. A caller can use the returned expressions in
+its own cursor strategy. MySQL/SQLite and other ORM adapters are not yet included.
+
+See [the joined and computed-column example](examples/drizzle-query.ts).
+Drizzle is an optional peer and stays out of the core and browser entry points.
+The headless root also loads under React server conditions, so server code can
+reuse `col`, `GridView` helpers, and filter definitions.
+
+## Postgres and Snowflake data sources
+
+Use the same `GridView` on the server with explicit columns and a scoped SELECT.
+The application owns authentication, its connections, and HTTP transport. The
+package compiles grid filters and sorting, fetches one page, and optionally counts
+the complete filtered result. SQL support ships through separate entry points:
+
+| Import | Exports |
+| --- | --- |
+| `firetable-grid/sql` | `sql`, `compileGridQuery`, `parseGridRequest`, `runGrid`, `nextGridPage`, types and errors |
+| `firetable-grid/pg` | `pgSource`, `sql` |
+| `firetable-grid/snowflake` | `snowflakeSource`, `sql` |
+
+All three have no runtime package dependencies. Install the driver you use in
+your application (`pg` or `snowflake-sdk`); the adapters accept it structurally.
+No driver is loaded by the root or React entry point.
+
+```ts
+import { pgSource, sql } from "firetable-grid/pg";
+import { runGrid } from "firetable-grid/sql";
+
+// tenantId comes from your authenticated session, never the grid request body.
+const source = pgSource<Listing>(pool, {
+  query: sql`SELECT id, make, price FROM listings WHERE tenant_id = ${tenantId}`,
+  rowKey: "id",
+});
+const result = await runGrid(source, request, { columns });
+// { rows: Listing[], total: number, page: { limit, offset } }
+```
+
+Snowflake uses the same runner. Quote output aliases to preserve their exact case:
+Snowflake otherwise resolves unquoted identifiers to uppercase.
+
+```ts
+import { snowflakeSource, sql } from "firetable-grid/snowflake";
+
+const source = snowflakeSource<Listing>(connection, {
+  query: sql`
+    SELECT ID AS "id", MAKE AS "make", PRICE AS "price"
+    FROM ANALYTICS.LISTINGS
+    WHERE TENANT_ID = ${tenantId}
+  `,
+  rowKey: "id",
+});
+const result = await runGrid(source, request, {
+  columns,
+  count: false,
+  signal: requestSignal,
+});
+```
+
+`sql` binds every interpolated value and supports nested fragments. Its
+`.toQuery("postgres" | "snowflake")` method returns `{ text, values }`, with
+parameters numbered across the complete statement. Interpolate values or other
+fragments; arbitrary objects and raw SQL strings are not SQL expressions.
+The **base SELECT itself remains database-specific**. Sources wrap it as a
+subquery; they do not translate its SQL or rewrite its joins.
+
+One output row must have one unique, non-null `rowKey`. A join can legitimately
+produce several rows per entity, provided each result row has its own key;
+aggregate child records when the grid should show one row per parent. The key
+is appended to sorting, including requests with no sort. Existing LIMIT/OFFSET
+in the base SELECT constrain the dataset before grid filtering.
+
+### Columns and SQL storage types
+
+Use your existing `SchemaColumn[]`. SQL reads `accessorKey ?? id` from the query's
+outputs, so computed values should be selected with an appropriate alias.
+`SqlGridColumn<Row>` adds `sqlType` for storage details the display type cannot
+express:
+
+```ts
+const columns: SqlGridColumn<Listing>[] = [
+  col({ id: "price", label: "Price", type: ColumnTypes.CURRENCY }),
+  {
+    ...col({ id: "createdAt", label: "Created", type: ColumnTypes.DATE }),
+    sqlType: "timestamptz",
+  },
+  {
+    ...col({ id: "tags", label: "Tags", type: { ...ColumnTypes.BADGE, setValued: true } }),
+    sqlType: "text[]",
+  },
+];
+```
+
+`ColumnTypes` here is the application's vocabulary, as elsewhere in this README.
+Set `sqlNullable: false` only for SELECT outputs guaranteed non-null, including
+after joins. This lets descending Postgres sorts use the index's default null
+ordering. Other columns retain `NULLS LAST`; enum option ranking also retains it
+because unknown values produce a null rank.
+
+Numeric filters expect native numeric query outputs; cast text to numeric in
+your SELECT when needed. Date filters require `sqlType: "date"`, `"timestamp"`
+or `"timestamptz"`. Date/timestamp compares the stored calendar day;
+timestamptz converts the instant to `runGrid`'s `timeZone` (default `"UTC"`).
+For Snowflake, timestamptz means TIMESTAMP_TZ or TIMESTAMP_LTZ; timezone-less
+TIMESTAMP_NTZ uses timestamp. The database's timestamp type must match the
+metadata. Set-valued enums default to comma-separated text; text[] uses a native
+Postgres text array or Snowflake ARRAY.
+
+The source preserves driver-decoded row values. In particular, Postgres numeric
+and bigint commonly arrive as strings. Supply matching row types, configure your
+driver, or cast deliberately in the SELECT. JSON transport of bigint and dates
+also belongs to the application. Snowflake Date bind values are sent as ISO
+strings; use an explicit timestamp cast in your base SELECT when appropriate.
+
+### Validation and semantics
+
+`runGrid` validates requests automatically. A route can also call
+`parseGridRequest(body, columns, { maxLimit: 1000 })` to parse untrusted JSON.
+`GridRequestError.issues` provides `{ path, message }` entries to return as a 400.
+Configuration errors throw `GridConfigError`; database errors propagate unchanged.
+To change the page-size policy, pass the same `maxLimit` to `runGrid`.
+
+- Filters reject unknown fields, disallowed operators, non-filterable columns,
+  malformed numbers/dates, and trees over 200 nodes or 20 levels. Pages use safe
+  integer offsets and limits of 1–1000 by default; sorting allows up to 32 rules.
+- Empty numeric/date input is a no-op. Text `is ""` selects empty values.
+  Empty `all` and `any` branches are TRUE, including when nested inside OR.
+- Text equality/search is case-insensitive; contains/search treats `%`, `_`,
+  backslash and `!` literally. Empty text includes whitespace. Numeric NaN is
+  empty and does not pass active numeric comparisons.
+- Set membership trims and lowercases each element; null sets pass `is not`.
+  Fixed enum options determine sorting order; values outside the options share
+  the final rank. Other sorts use explicit NULLS LAST in either direction.
+- SQL collation/case handling and ordering may differ from JavaScript. The memory
+  engine's local-Date/string-prefix behavior is unchanged; timezone-aware SQL
+  date filtering is an explicit separate contract. Numeric filter inputs remain decimal strings, including exact ratio scaling.
+  Snowflake rejects filters exceeding 38 digits or 37 decimal places; precision
+  also depends on the storage type of the queried column.
+- JavaScript `getFilterValue` cannot supply SQL filtering/search, and custom
+  `sortingFn` cannot supply SQL sorting. Expose those values in the base query
+  and pass a SQL-compatible column definition. Server grouping is rejected in
+  this version. View column-layout preferences are ignored by the server.
+
+### Render server results
+
+Pass `dataMode="server"` so the grid preserves the server's rows and ordering:
+
+```tsx
+<DataGrid
+  dataMode="server"
+  rows={result.rows}
+  columns={columns}
+  view={view}
+  onViewChange={setView}
+  getRowId={(row) => row.id}
+  renderCell={renderCell}
+/>
+```
+
+Server mode requires a controlled `view` and `onViewChange`; header sorting still
+emits the next view for the application to fetch. Selection applies to loaded
+rows. Local grouping is disabled. Supply `footerValues` for full-result footers;
+missing values display as unknown instead of aggregating only the loaded page.
+The default `dataMode="client"` retains the original local behavior.
+
+`nextGridPage(result)` returns the next `{ limit, offset }` or `undefined`.
+With `count: false`, a short/empty page ends the sequence; a final full page
+requires one more request. For infinite loading, reset pages whenever the query
+changes, pass the fetch AbortSignal, flatten pages once, and guard `onEndReached`
+against concurrent loads. The package does not choose a fetching library.
+
+See [the server route example](examples/sql-sources.ts),
+[the client example with cancellation and paging](examples/server-grid.tsx), and
+[their shared columns](examples/sql-columns.ts). The route example takes a source
+already scoped by your authenticated tenant. The client uses ordinary fetch and
+needs no additional React data library.
+
+### Execution and verification
+
+Page and count are separate statements and may observe different snapshots.
+Offset pagination has deterministic ties on unchanged data; concurrent inserts,
+deletes or sort-value changes can still produce skipped/repeated rows. Use
+`count: false` when totals are unnecessary. Snowflake aborts call the statement's
+`cancel()` method; the minimal Postgres `query(text, values)` interface checks
+abort before/after execution but does not cancel an in-flight database query.
+
+Wrapped-query performance depends on the query, indexes and optimizer. Predicate
+pushdown is conditional; moving filters before aggregates can change results.
+Use EXPLAIN ANALYZE on your workload. `bun run bench:sql` runs synthetic joined
+and aggregated plans in local PGlite; set `GRID_BENCH_DATABASE_URL` to opt into
+SELECT-only live Postgres plans. These fixtures are not production latency claims.
+
+`bun test` runs real Postgres SQL through PGlite plus driver lifecycle, compiler,
+validation, bundle isolation and server-rendering tests. The Snowflake fixture
+suite is opt-in and executes only inline SELECTs:
+
+```sh
+SNOWFLAKE_ACCOUNT=... SNOWFLAKE_USER=... SNOWFLAKE_WAREHOUSE=... \
+  bun run test:snowflake
+```
+
+Provide `SNOWFLAKE_PRIVATE_KEY` (PEM, JWT authentication) or
+`SNOWFLAKE_PASSWORD`, and optionally `SNOWFLAKE_ROLE`, through your environment.
+The live suite uses the same expected-result cases as Postgres. Credentials are
+never stored in this repository.
